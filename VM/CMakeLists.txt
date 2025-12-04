@@ -11,40 +11,33 @@ execute_process(
 )
 list(APPEND CMAKE_PREFIX_PATH "${pybind11_DIR}")
 find_package(pybind11 REQUIRED)
-
-# --- ИЗМЕНЕНИЕ: Ищем SEAL ---
 find_package(SEAL REQUIRED)
 
 set(VERILATOR_INCLUDE_DIR "/usr/share/verilator/include")
 include_directories(${VERILATOR_INCLUDE_DIR} ${VERILATOR_INCLUDE_DIR}/vltstd)
 
-set(VERILOG_SOURCE "${CMAKE_SOURCE_DIR}/src/rtl/burst_test.v")
+# --- ИЗМЕНЕНИЕ: copy_engine.v ---
+set(VERILOG_SOURCE "${CMAKE_SOURCE_DIR}/src/rtl/copy_engine.v")
 
 add_custom_command(
-    OUTPUT Vburst_test.cpp Vburst_test.h Vburst_test__Syms.cpp Vburst_test__Syms.h Vburst_test__Slow.cpp
+    OUTPUT Vcopy_engine.cpp Vcopy_engine.h Vcopy_engine__Syms.cpp Vcopy_engine__Syms.h Vcopy_engine__Slow.cpp
     COMMAND verilator --cc --exe --Mdir . --CFLAGS "-fPIC" ${VERILOG_SOURCE}
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     DEPENDS ${VERILOG_SOURCE}
-    COMMENT "Verilating burst_test.v..."
+    COMMENT "Verilating copy_engine.v..."
 )
 
 pybind11_add_module(logos_emu
     src/emulator_core.cpp
     src/dpi_impl.cpp
     src/fhe_impl.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/Vburst_test.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/Vburst_test__Syms.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/Vburst_test__Slow.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vcopy_engine.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vcopy_engine__Syms.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vcopy_engine__Slow.cpp
     ${VERILATOR_INCLUDE_DIR}/verilated.cpp
     ${VERILATOR_INCLUDE_DIR}/verilated_dpi.cpp 
 )
 
-target_include_directories(logos_emu PRIVATE 
-    ${CMAKE_CURRENT_BINARY_DIR}
-    ${VERILATOR_INCLUDE_DIR}
-)
-
+target_include_directories(logos_emu PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${VERILATOR_INCLUDE_DIR})
 target_compile_options(logos_emu PRIVATE -fPIC)
-
-# --- ИЗМЕНЕНИЕ: Линкуем SEAL к нашей библиотеке ---
 target_link_libraries(logos_emu PRIVATE SEAL::seal)

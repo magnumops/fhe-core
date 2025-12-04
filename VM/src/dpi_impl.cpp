@@ -44,24 +44,23 @@ extern "C" {
         return (long long)g_ram->read((uint64_t)addr);
     }
 
+    // Чтение (RAM -> Verilog)
     void dpi_read_burst(long long addr, int len, const svOpenArrayHandle data) {
-        if (!g_ram) {
-            std::cout << "[CPP] Error: RAM not initialized!" << std::endl;
-            return;
-        }
-        
-        // std::cout << "[CPP] Burst read addr=" << addr << " len=" << len << std::endl;
-
+        if (!g_ram) return;
         for (int i = 0; i < len; i++) {
             uint64_t val = g_ram->read(addr + i);
-            
-            // Получаем указатель. Для типа 'bit' это прямой указатель на uint64_t
             uint64_t* v_ptr = (uint64_t*)svGetArrElemPtr1(data, i);
-            
+            if (v_ptr) *v_ptr = val;
+        }
+    }
+
+    // Запись (Verilog -> RAM) -- НОВОЕ
+    void dpi_write_burst(long long addr, int len, const svOpenArrayHandle data) {
+        if (!g_ram) return;
+        for (int i = 0; i < len; i++) {
+            uint64_t* v_ptr = (uint64_t*)svGetArrElemPtr1(data, i);
             if (v_ptr) {
-                *v_ptr = val;
-            } else {
-                 std::cout << "[CPP] Error: Null pointer for index " << i << std::endl;
+                g_ram->write(addr + i, *v_ptr);
             }
         }
     }
@@ -70,3 +69,9 @@ extern "C" {
 void init_ram() { if (!g_ram) g_ram = new VirtualRAM(); }
 void cleanup_ram() { if (g_ram) { delete g_ram; g_ram = nullptr; } }
 void py_write_ram(uint64_t addr, uint64_t val) { if (g_ram) g_ram->write(addr, val); }
+
+// НОВОЕ: Функция для чтения памяти из Python (чтобы проверить результат)
+uint64_t py_read_ram(uint64_t addr) { 
+    if (g_ram) return g_ram->read(addr); 
+    return 0;
+}

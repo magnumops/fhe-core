@@ -80,3 +80,13 @@ add_executable(test_sim ... Vcounter.cpp Vcounter__Syms.cpp Vcounter__Slow.cpp .
 ## Python Import Order
 **Проблема:** `ModuleNotFoundError` даже при наличии `sys.path.append`.
 **Решение:** Команда `sys.path.append(...)` должна выполняться СТРОГО ПЕРЕД командой `import logos_emu`.
+
+## FHE Параметры (SEAL BFV)
+**Проблема:** `ValueError: plain is not valid for encryption parameters`.
+**Причина:** Пытаетесь зашифровать число, которое больше `plain_modulus`.
+**Решение:** Увеличить `plain_modulus` (например, до 65537 для 16-битных чисел).
+
+## Verilog Buffers & Ciphertext Size
+**Проблема:** Ошибка декомпрессии SEAL (`stream decompression failed`) после обработки данных в Verilog.
+**Причина:** Размер шифртекста FHE огромен (сотни килобайт). Если внутренний буфер Verilog-модуля меньше шифртекста, хвост данных теряется.
+**Решение:** Всегда рассчитывать размер буферов исходя из параметров криптосистемы (PolyDegree * CoeffModulusSize). Для Degree=4096 буфер должен быть > 100 КБ.
