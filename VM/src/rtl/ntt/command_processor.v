@@ -6,7 +6,9 @@ module command_processor (
     output reg [3:0]   cmd_slot,
     output reg [47:0]  cmd_dma_addr,
     input  wire        engine_ready,
-    output reg         halted
+    output reg         halted,
+    // DEBUG PORT
+    output wire [1:0]  dbg_state
 );
     import "DPI-C" function bit dpi_get_cmd(output bit [63:0] cmd_out);
 
@@ -15,6 +17,7 @@ module command_processor (
     localparam S_EXEC   = 1;
     localparam S_HALTED = 2;
     reg [1:0] state;
+    assign dbg_state = state;
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
@@ -25,14 +28,11 @@ module command_processor (
             case (state)
                 S_FETCH: begin
                     cmd_valid <= 0;
-                    // Only log if we actually try to fetch
                     if (engine_ready) begin
                         if (dpi_get_cmd(current_cmd)) begin
-                            $display("[CPU] Fetched CMD: %h", current_cmd);
                             if (current_cmd[63:56] == 8'h00) begin
                                 state <= S_HALTED;
                                 halted <= 1;
-                                $display("[CPU] HALTING");
                             end else begin
                                 cmd_opcode <= current_cmd[63:56];
                                 cmd_slot     <= current_cmd[55:52];

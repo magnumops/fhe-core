@@ -11,7 +11,9 @@ module ntt_engine #(
     input  wire [63:0] q,
     input  wire [63:0] mu,
     input  wire [63:0] n_inv,
-    output reg         ready
+    output reg         ready,
+    // DEBUG PORT
+    output wire [2:0]  dbg_state
 );
 
     import "DPI-C" function void dpi_read_burst(input longint addr, input int len, output bit [63:0] data []);
@@ -32,6 +34,7 @@ module ntt_engine #(
     localparam S_SCALE     = 4; 
     
     reg [2:0] state;
+    assign dbg_state = state;
 
     ntt_control #(.N_LOG(N_LOG), .N(N)) u_control (
         .clk(clk), .rst(rst), .start(agu_start),
@@ -70,10 +73,6 @@ module ntt_engine #(
             agu_start <= 0;
             current_slot <= 0;
         end else begin
-            // DEBUG LOGGING
-            if (state != S_IDLE || cmd_valid) 
-                $display("[ENGINE] Time: %t, State: %d, Ready: %d, Valid: %d, Op: %h", $time, state, ready, cmd_valid, cmd_opcode);
-
             case (state)
                 S_IDLE: begin
                     ready <= 1;
@@ -100,13 +99,11 @@ module ntt_engine #(
                 end
 
                 S_DMA_READ: begin
-                    $display("[ENGINE] Executing DMA READ to Slot %d", current_slot);
                     dpi_read_burst({16'b0, cmd_dma_addr}, N, mem[current_slot]);
                     state <= S_IDLE;
                 end
 
                 S_DMA_WRITE: begin
-                    $display("[ENGINE] Executing DMA WRITE from Slot %d", current_slot);
                     dpi_write_burst({16'b0, cmd_dma_addr}, N, mem[current_slot]);
                     state <= S_IDLE;
                 end

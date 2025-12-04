@@ -1,5 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
+#include <iostream>
 #include "Vlogos_core.h"
 #include "verilated.h"
 #include "dpi_impl.h"
@@ -7,9 +8,7 @@
 
 namespace py = pybind11;
 
-// === REQUIRED BY VERILATOR FOR $time ===
 double sc_time_stamp() { return 0; }
-// =======================================
 
 VirtualRAM* g_ram = nullptr;
 CommandQueue* g_queue = nullptr;
@@ -38,52 +37,54 @@ public:
     std::vector<uint64_t> read_ram(uint64_t addr, size_t size) { return ram->read(addr, size); }
 
     void set_context(uint64_t q, uint64_t mu, uint64_t n_inv) {
-        top->ctx_q = q;
-        top->ctx_mu = mu;
-        top->ctx_n_inv = n_inv;
+        top->ctx_q = q; top->ctx_mu = mu; top->ctx_n_inv = n_inv;
     }
 
-    void push_command(uint64_t cmd) {
-        queue->push(cmd);
-    }
+    void push_command(uint64_t cmd) { queue->push(cmd); }
+    void push_halt() { queue->push((uint64_t)OPC_HALT << 56); }
 
-    void push_halt() {
-        uint64_t cmd = (uint64_t)OPC_HALT << 56;
-        queue->push(cmd);
-    }
-
-    // Load: HostAddr -> Slot
     void push_load_op(int slot, uint64_t host_addr) {
-        uint64_t cmd = ((uint64_t)OPC_LOAD << 56) | 
-                       ((uint64_t)(slot & 0xF) << 52) | 
-                       (host_addr & 0xFFFFFFFFFFFF);
+        uint64_t cmd = ((uint64_t)OPC_LOAD << 56) | ((uint64_t)(slot & 0xF) << 52) | (host_addr & 0xFFFFFFFFFFFF);
         queue->push(cmd);
     }
 
-    // Store: Slot -> HostAddr
     void push_store_op(int slot, uint64_t host_addr) {
-        uint64_t cmd = ((uint64_t)OPC_STORE << 56) | 
-                       ((uint64_t)(slot & 0xF) << 52) | 
-                       (host_addr & 0xFFFFFFFFFFFF);
+        uint64_t cmd = ((uint64_t)OPC_STORE << 56) | ((uint64_t)(slot & 0xF) << 52) | (host_addr & 0xFFFFFFFFFFFF);
         queue->push(cmd);
     }
 
-    // NTT: Slot, Mode
     void push_ntt_op(int slot, int mode) {
         uint64_t op = (mode == 1) ? OPC_INTT : OPC_NTT;
-        uint64_t cmd = (op << 56) | 
-                       ((uint64_t)(slot & 0xF) << 52);
+        uint64_t cmd = (op << 56) | ((uint64_t)(slot & 0xF) << 52);
         queue->push(cmd);
     }
 
     void run() {
-        int timeout = 5000000;
+        int timeout = 500000;
+        int cycle = 0;
+        std::cout << "[CPP] Starting RUN loop..." << std::endl;
+        
         while (!top->halted && timeout > 0) {
             top->clk = 0; top->eval();
             top->clk = 1; top->eval();
+            
+            // Heartbeat every 10k cycles
+            if (cycle % 10000 == 0) {
+                std::cout << "[TRACE] Cycle " << cycle 
+                          << " | CPU State: " << (int)top->dbg_cpu_state
+                          << " | Engine State: " << (int)top->dbg_engine_state 
+                          << " | Halted: " << (int)top->halted << std::endl;
+            }
+            
             timeout--;
+            cycle++;
         }
-        if (timeout == 0) throw std::runtime_error("Logos Core Timeout");
+        if (timeout == 0) {
+            std::cout << "[ERROR] Timeout! Final State - CPU: " << (int)top->dbg_cpu_state 
+                      << " Engine: " << (int)top->dbg_engine_state << std::endl;
+            throw std::runtime_error("Logos Core Timeout");
+        }
+        std::cout << "[CPP] Run finished. Cycles: " << cycle << std::endl;
     }
 };
 
