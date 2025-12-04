@@ -76,3 +76,31 @@ pybind11_add_module(ntt_agu_tester
     ${CMAKE_CURRENT_BINARY_DIR}/Vntt_control__Slow.cpp
     ${VERILATOR_INCLUDE_DIR}/verilated.cpp
 )
+
+# --- TARGET 4: NTT ENGINE INTEGRATION (Day 6) ---
+set(RTL_ENGINE "${CMAKE_SOURCE_DIR}/src/rtl/ntt/ntt_engine.v")
+# Зависимости
+set(RTL_DEPS 
+    "${CMAKE_SOURCE_DIR}/src/rtl/ntt/ntt_control.v"
+    "${CMAKE_SOURCE_DIR}/src/rtl/ntt/twiddle_rom.v"
+    "${CMAKE_SOURCE_DIR}/src/rtl/ntt/butterfly.v"
+    "${CMAKE_SOURCE_DIR}/src/rtl/ntt/mod_add.v"
+    "${CMAKE_SOURCE_DIR}/src/rtl/ntt/mod_sub.v"
+    "${CMAKE_SOURCE_DIR}/src/rtl/ntt/mod_mult.v"
+)
+
+add_custom_command(
+    OUTPUT Vntt_engine.cpp Vntt_engine.h Vntt_engine__Syms.cpp Vntt_engine__Syms.h Vntt_engine__Slow.cpp
+    COMMAND verilator --cc --exe --Mdir . --CFLAGS "-fPIC" -I${CMAKE_SOURCE_DIR}/src/rtl/ntt ${RTL_ENGINE}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    DEPENDS ${RTL_ENGINE} ${RTL_DEPS}
+    COMMENT "Verilating ntt_engine.v..."
+)
+
+pybind11_add_module(ntt_engine_tester
+    src/ntt_engine_tester.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vntt_engine.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vntt_engine__Syms.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vntt_engine__Slow.cpp
+    ${VERILATOR_INCLUDE_DIR}/verilated.cpp
+)
