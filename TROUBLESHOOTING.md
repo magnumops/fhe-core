@@ -90,3 +90,30 @@ add_executable(test_sim ... Vcounter.cpp Vcounter__Syms.cpp Vcounter__Slow.cpp .
 **Проблема:** Ошибка декомпрессии SEAL (`stream decompression failed`) после обработки данных в Verilog.
 **Причина:** Размер шифртекста FHE огромен (сотни килобайт). Если внутренний буфер Verilog-модуля меньше шифртекста, хвост данных теряется.
 **Решение:** Всегда рассчитывать размер буферов исходя из параметров криптосистемы (PolyDegree * CoeffModulusSize). Для Degree=4096 буфер должен быть > 100 КБ.
+
+## Verilator Generated Headers Not Found
+**Проблема:** Ошибка `fatal error: Vmodel.h: No such file or directory` при компиляции C++ обертки.
+**Причина:** Verilator генерирует файлы внутри папки сборки (`build` или `${CMAKE_CURRENT_BINARY_DIR}`), но C++ компилятор не ищет там заголовочные файлы по умолчанию.
+**Решение:**
+Добавить в `CMakeLists.txt` строку:
+\`\`\`cmake
+include_directories(\${CMAKE_CURRENT_BINARY_DIR})
+\`\`\`
+
+## Verilator Lint: WIDTH Warnings (Strict Mode)
+**Проблема:** Ошибка сборки `Operator ASSIGNW expects X bits ... but ... generates Y bits`.
+**Причина:** Verilator требует явного приведения типов при любом несовпадении разрядности.
+**Решение (Explicit Casting):**
+1. **Расширение (Padding):** `{1'b0, variable}` или `{64'b0, variable}`.
+2. **Сужение (Truncation):** `variable[63:0]`.
+*Пример:*
+\`\`\`verilog
+wire [127:0] prod = {64'b0, a} * {64'b0, b}; // Явное расширение входов
+assign out = prod[63:0];                     // Явное сужение выхода
+\`\`\`
+
+## Linker Error: svGetArrElemPtr1
+**Проблема:** `undefined symbol: svGetArrElemPtr1` при импорте модуля в Python.
+**Причина:** В сборке отсутствует реализация функций DPI Open Arrays, необходимая для `verilated` библиотеки.
+**Решение:**
+Всегда добавлять `\${VERILATOR_INCLUDE_DIR}/verilated_dpi.cpp` в список исходных файлов `pybind11_add_module`, если проект использует DPI.
