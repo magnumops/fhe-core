@@ -92,3 +92,29 @@
 | ID | Гипотеза / Проблема | Предпринятое Действие | Результат | Анализ Провала (Root Cause) |
 | :--- | :--- | :--- | :--- | :--- |
 | PM-P2-014 | Генератор конфига `gen_twiddles_intt.py` найдет `ntt_config_4k` в PYTHONPATH по умолчанию. | Запуск скрипта без `sys.path.append`. | Runtime Error & Data Corruption. | Скрипт упал, не сгенерировал N_INV. `sed` вставил пустое значение в Verilog -> Syntax Error. Исправлено добавлением `os.getcwd()` в sys.path и проверкой переменных в shell-скрипте. |
+
+# Session: Phase 3 (RNS & Architecture Upgrade)
+
+## Episode: Day 3 - Dynamic Params
+| ID | Гипотеза / Проблема | Результат | Root Cause |
+| :--- | :--- | :--- | :--- |
+| **PM-P3-01** | Обновление RTL для `mu`, но не `q`. | Self-Correction. | Логическая ошибка: Барретт требует и `mu`, и `q`. |
+| **PM-P3-02** | Обновление конфига `ntt_config_4k.py`. | `AttributeError: no attribute 'N_LOG'` | **Context Blindness / Stale Cache.** 1. Команда выполнялась с неверным путем (префикс `VM/` внутри папки `VM`). 2. `__pycache__` внутри Docker не обновлялся при `COPY`. |
+
+## Episode: Day 4 - Command Processor
+| ID | Гипотеза / Проблема | Результат | Root Cause |
+| :--- | :--- | :--- | :--- |
+| **PM-P3-03** | Сборка Docker после смены API C++. | `AttributeError: no attribute 'run_ntt'` | **API Breaking Change.** Тест `test_day10_platinum.py` использовал старый метод, который был удален из C++. |
+| **PM-P3-04** | Исправление теста. | `AttributeError` (повтор). | **Context Blindness.** Исправление записывалось в несуществующую вложенную папку `VM/tests/...` вместо `tests/...`. |
+| **PM-P3-05** | Запуск DPI функций. | `stack smashing detected` | **ABI Mismatch.** В C++ функции `dpi_read_burst` были объявлены как принимающие `svBitVecVal*`, а Verilator передавал `svOpenArrayHandle`. Память корраптилась при доступе. |
+
+## Episode: Day 5 - Multi-Bank Memory
+| ID | Гипотеза / Проблема | Результат | Root Cause |
+| :--- | :--- | :--- | :--- |
+| **PM-P3-06** | Git Commit. | `pathspec ... did not match`. | **Navigation Error.** Запуск git из корня с путями `src/...` (которые валидны только внутри `VM/`). |
+| **PM-P3-07** | RTL Compilation. | `Warning-WIDTH` (3 bits vs 2 bits). | **Type Mismatch.** `current_slot` был `reg [2:0]`, а массив `mem` имел размер 4 (2 бита). Verilator Strict Mode запрещает неявное усечение. |
+| **PM-P3-08** | C++ Compilation. | `error: 'OPC_LOAD' was not declared`. | **Stale Header.** Файл `isa_spec.h` не обновился из-за ошибки путей в предыдущем шаге. |
+| **PM-P3-09** | Linking. | `undefined symbol ..._eval`. | **Verilator Split.** Увеличение памяти привело к тому, что Verilator разбил код на несколько файлов, которые CMake не знал. |
+| **PM-P3-10** | Runtime. | `Logos Core Timeout`. | **Simulation Freeze.** Эмулятор застревает. Причина выясняется (предположительно отсутствие `ready` сигнала или deadlock). |
+| **PM-P3-11** | Instrumentation (Debug). | `syntax error, unexpected always`. | **Verilog Syntax.** Попытка вложить `always` блок внутрь другого `always` через `sed`. |
+| **PM-P3-12** | Linker (Debug). | `undefined symbol: sc_time_stamp`. | **Missing Hook.** Использование `$time` в Verilog требует реализации `double sc_time_stamp()` в C++. |

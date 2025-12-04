@@ -196,3 +196,70 @@ bit [63:0] mem [0:N-1];
 // Неправильно:
 // reg [63:0] mem [0:N-1];
 \`\`\`
+
+## Verilator: Stack Smashing in DPI
+**Проблема:** `stack smashing detected` при вызове DPI функции.
+**Причина:** Несоответствие сигнатур. Если в Verilog используется Open Array (`output bit [63:0] data []`), то в C++ функция **обязана** принимать `const svOpenArrayHandle`.
+**Решение:**
+1. Использовать `svOpenArrayHandle` в аргументах C++.
+2. Использовать `svGetArrElemPtr1(h, i)` для доступа к данным.
+3. Либо отказаться от Open Arrays в Verilog и передавать простой указатель (но тогда теряется информация о длине).
+
+## Verilator: Undefined Symbol `_eval` (Split Files)
+**Проблема:** Ошибка линковки при большом размере RTL (например, большая память).
+**Причина:** Verilator по умолчанию разбивает выходной C++ код на несколько файлов (`Vmodel__1.cpp` и т.д.), если код слишком большой. CMakeLists, настроенный вручную, не знает об этих файлах.
+**Решение:**
+Добавить флаги `--output-split 0 --output-split-cfuncs 0` в команду verilator. Это заставит его генерировать всё в одном файле `Vmodel.cpp`.
+
+## Verilator: Undefined Symbol `sc_time_stamp`
+**Проблема:** Ошибка линковки при использовании `$time` в Verilog.
+**Причина:** Verilator требует, чтобы хост-система предоставляла текущее время симуляции.
+**Решение:** Добавить в C++ код (глобально):
+```cpp
+double sc_time_stamp() { return 0; }
+```
+
+## Verilator: WIDTH Warnings (Strict)
+**Проблема:** `Warning-WIDTH: Bit extraction of array[3:0] requires 2 bit index`.
+**Причина:** Попытка индексировать массив размером $2^N$ переменной размером $M > N$ бит.
+**Решение:** Явно приводить индекс к нужной ширине: `mem[idx[1:0]]`.
+
+## Docker & Python Caching
+**Проблема:** Python в Docker не видит изменений в `.py` файлах (например, новых переменных конфига).
+**Причина:** `COPY . /app` копирует папку `__pycache__` с хоста. Python загружает старый байт-код.
+**Решение:**
+1. Добавить `__pycache__` и `*.pyc` в `.dockerignore`.
+2. Удалять `__pycache__` перед сборкой.
+
+## Verilator: Stack Smashing in DPI
+**Проблема:** `stack smashing detected` при вызове DPI функции.
+**Причина:** Несоответствие сигнатур. Если в Verilog используется Open Array (`output bit [63:0] data []`), то в C++ функция **обязана** принимать `const svOpenArrayHandle`.
+**Решение:**
+1. Использовать `svOpenArrayHandle` в аргументах C++.
+2. Использовать `svGetArrElemPtr1(h, i)` для доступа к данным.
+3. Либо отказаться от Open Arrays в Verilog и передавать простой указатель (но тогда теряется информация о длине).
+
+## Verilator: Undefined Symbol `_eval` (Split Files)
+**Проблема:** Ошибка линковки при большом размере RTL (например, большая память).
+**Причина:** Verilator по умолчанию разбивает выходной C++ код на несколько файлов (`Vmodel__1.cpp` и т.д.), если код слишком большой. CMakeLists, настроенный вручную, не знает об этих файлах.
+**Решение:**
+Добавить флаги `--output-split 0 --output-split-cfuncs 0` в команду verilator. Это заставит его генерировать всё в одном файле `Vmodel.cpp`.
+
+## Verilator: Undefined Symbol `sc_time_stamp`
+**Проблема:** Ошибка линковки при использовании `$time` в Verilog.
+**Причина:** Verilator требует, чтобы хост-система предоставляла текущее время симуляции.
+**Решение:** Добавить в C++ код (глобально):
+```cpp
+double sc_time_stamp() { return 0; }
+
+
+Verilator: WIDTH Warnings (Strict)
+Проблема: Warning-WIDTH: Bit extraction of array[3:0] requires 2 bit index.
+Причина: Попытка индексировать массив размером $2^N$ переменной размером $M > N$ бит.
+Решение: Явно приводить индекс к нужной ширине: mem[idx[1:0]].
+Docker & Python Caching
+Проблема: Python в Docker не видит изменений в .py файлах (например, новых переменных конфига).
+Причина: COPY . /app копирует папку __pycache__ с хоста. Python загружает старый байт-код.
+Решение:
+Добавить __pycache__ и *.pyc в .dockerignore.
+Удалять __pycache__ перед сборкой.
