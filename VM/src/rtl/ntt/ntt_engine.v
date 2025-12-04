@@ -1,6 +1,6 @@
 module ntt_engine #(
-    parameter N_LOG = 3,
-    parameter N     = 8
+    parameter N_LOG = 12,
+    parameter N     = 4096
 )(
     input  wire        clk,
     input  wire        rst,
@@ -39,12 +39,12 @@ module ntt_engine #(
     );
 
     wire [63:0] w_data;
-    twiddle_rom u_rom (.addr(agu_addr_w[2:0]), .data(w_data));
+    twiddle_rom u_rom (.addr(agu_addr_w[11:0]), .data(w_data));
 
     wire [63:0] u_in = mem[agu_addr_u];
     wire [63:0] v_in = mem[agu_addr_v];
     wire [63:0] u_out, v_out;
-    wire [63:0] const_q = 17;
+    wire [63:0] const_q = 1073750017;
 
     butterfly u_bf (
         .u(u_in), .v(v_in), .w(w_data), .q(const_q),

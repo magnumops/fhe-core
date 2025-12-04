@@ -52,7 +52,7 @@ public:
         top->start = 0;
         
         // Wait for Done
-        int timeout = 10000;
+        int timeout = 1000000;
         while (!top->done && timeout > 0) {
             top->clk = 0; top->eval();
             top->clk = 1; top->eval();

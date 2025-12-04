@@ -1,6 +1,6 @@
 module ntt_control #(
-    parameter N_LOG = 3,  // Log2(8)
-    parameter N     = 8
+    parameter N_LOG = 12,  // Log2(8)
+    parameter N     = 4096
 )(
     input  wire       clk,
     input  wire       rst,

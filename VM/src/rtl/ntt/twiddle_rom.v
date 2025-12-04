@@ -1,12 +1,12 @@
 module twiddle_rom (
-    input  wire [2:0]  addr, // Log2(8) = 3 бита
+    input  wire [11:0] addr, // Log2(4096) = 12 бит
     output reg  [63:0] data
 );
-    reg [63:0] mem [0:7];
+    // ROM 4096 слов
+    reg [63:0] mem [0:4095];
 
     initial begin
-        // $readmemh ищет файл относительно рабочей директории запуска симулятора
-        $readmemh("twiddles.hex", mem);
+        $readmemh("twiddles_4k.hex", mem);
     end
 
     always @(*) begin
