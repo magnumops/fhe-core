@@ -12,6 +12,9 @@ execute_process(
 list(APPEND CMAKE_PREFIX_PATH "${pybind11_DIR}")
 find_package(pybind11 REQUIRED)
 
+# --- ИЗМЕНЕНИЕ: Ищем SEAL ---
+find_package(SEAL REQUIRED)
+
 set(VERILATOR_INCLUDE_DIR "/usr/share/verilator/include")
 include_directories(${VERILATOR_INCLUDE_DIR} ${VERILATOR_INCLUDE_DIR}/vltstd)
 
@@ -25,10 +28,10 @@ add_custom_command(
     COMMENT "Verilating burst_test.v..."
 )
 
-# ИСПРАВЛЕНИЕ ЗДЕСЬ: Добавлен verilated_dpi.cpp
 pybind11_add_module(logos_emu
     src/emulator_core.cpp
     src/dpi_impl.cpp
+    src/fhe_impl.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/Vburst_test.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/Vburst_test__Syms.cpp
     ${CMAKE_CURRENT_BINARY_DIR}/Vburst_test__Slow.cpp
@@ -40,4 +43,8 @@ target_include_directories(logos_emu PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}
     ${VERILATOR_INCLUDE_DIR}
 )
+
 target_compile_options(logos_emu PRIVATE -fPIC)
+
+# --- ИЗМЕНЕНИЕ: Линкуем SEAL к нашей библиотеке ---
+target_link_libraries(logos_emu PRIVATE SEAL::seal)

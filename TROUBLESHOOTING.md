@@ -65,3 +65,18 @@ add_executable(test_sim ... Vcounter.cpp Vcounter__Syms.cpp Vcounter__Slow.cpp .
 **Проблема 2:** Мусорные данные при чтении массива в C++.
 **Причина:** Использование типа `reg` (4-state logic) в Verilog. Verilator представляет `reg` как сложную структуру, а не как чистое число.
 **Решение:** В интерфейсе DPI всегда использовать тип **`bit`** (2-state logic). Он бинарно совместим с C++ типами (`uint64_t`).
+
+## Microsoft SEAL Integration
+**Проблема:** Сборка SEAL занимает слишком много времени или падает по памяти.
+**Решение:**
+1. Отключить необязательные зависимости: `-DSEAL_USE_MSGSL=OFF -DSEAL_USE_ZLIB=OFF`.
+2. Использовать релизную ветку (например, `v4.1.1`), а не main.
+3. Кешировать слой сборки в Docker (делать установку SEAL отдельным слоем `RUN`).
+
+## C++ PyBind Dependencies
+**Проблема:** `error: 'pybind11' does not name a type`.
+**Решение:** Всегда включать `#include <pybind11/pybind11.h>` в C++ файл, если в нем используются типы PyBind, даже если это вспомогательный файл реализации.
+
+## Python Import Order
+**Проблема:** `ModuleNotFoundError` даже при наличии `sys.path.append`.
+**Решение:** Команда `sys.path.append(...)` должна выполняться СТРОГО ПЕРЕД командой `import logos_emu`.
