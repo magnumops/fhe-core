@@ -1,77 +1,57 @@
-#include <iostream>
-#include <sys/mman.h>
-#include <fcntl.h>
-#include <unistd.h>
+#include "dpi_impl.h"
+#include "svdpi.h" // Стандартный хедер SystemVerilog DPI
 #include <cstring>
-#include "svdpi.h" 
+#include <iostream>
 
-class VirtualRAM {
-public:
-    uint64_t* ram_base;
-    size_t size_bytes;
-    int fd;
-
-    VirtualRAM() {
-        size_bytes = 1024 * 1024 * 1024; 
-        fd = open("verilator_ram.bin", O_RDWR | O_CREAT, 0666);
-        ftruncate(fd, size_bytes);
-        void* map = mmap(0, size_bytes, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-        ram_base = (uint64_t*)map;
-    }
-
-    ~VirtualRAM() {
-        munmap(ram_base, size_bytes);
-        close(fd);
-        unlink("verilator_ram.bin");
-    }
-
-    uint64_t read(uint64_t addr) {
-        if (addr >= (size_bytes / 8)) return 0;
-        return ram_base[addr];
-    }
-
-    void write(uint64_t addr, uint64_t val) {
-        if (addr >= (size_bytes / 8)) return;
-        ram_base[addr] = val;
-    }
-};
-
-VirtualRAM* g_ram = nullptr;
+// Примечание: g_ram определяется в emulator_core.cpp, здесь он только используется (extern).
 
 extern "C" {
-    long long dpi_read_ram(long long addr) {
-        if (!g_ram) return 0;
-        return (long long)g_ram->read((uint64_t)addr);
-    }
-
-    // Чтение (RAM -> Verilog)
+    
+    // DPI Read: Verilog (Client) reads from C++ RAM (Server)
+    // Signature: function void dpi_read_burst(input longint addr, input int len, output bit [63:0] data []);
+    // C++ Mapping for open array: const svOpenArrayHandle
     void dpi_read_burst(long long addr, int len, const svOpenArrayHandle data) {
-        if (!g_ram) return;
-        for (int i = 0; i < len; i++) {
-            uint64_t val = g_ram->read(addr + i);
-            uint64_t* v_ptr = (uint64_t*)svGetArrElemPtr1(data, i);
-            if (v_ptr) *v_ptr = val;
+        if (!g_ram) {
+            // Safety check: if RAM not initialized, fill with zeros
+            return; 
         }
-    }
-
-    // Запись (Verilog -> RAM) -- НОВОЕ
-    void dpi_write_burst(long long addr, int len, const svOpenArrayHandle data) {
-        if (!g_ram) return;
-        for (int i = 0; i < len; i++) {
-            uint64_t* v_ptr = (uint64_t*)svGetArrElemPtr1(data, i);
-            if (v_ptr) {
-                g_ram->write(addr + i, *v_ptr);
+        
+        // 1. Читаем данные из модели памяти
+        std::vector<uint64_t> vec = g_ram->read(addr, len);
+        
+        // 2. Копируем в Verilog Open Array
+        for (int i = 0; i < len; ++i) {
+            // svGetArrElemPtr1 возвращает указатель на элемент массива.
+            // Элемент bit [63:0] в C++ представляется как svBitVecVal[2] (2 * 32 бита).
+            svBitVecVal* elem = (svBitVecVal*)svGetArrElemPtr1(data, i);
+            
+            if (elem) {
+                uint64_t val = vec[i];
+                elem[0] = (svBitVecVal)(val & 0xFFFFFFFF);         // Low 32 bits
+                elem[1] = (svBitVecVal)((val >> 32) & 0xFFFFFFFF); // High 32 bits
             }
         }
     }
-}
 
-void init_ram() { if (!g_ram) g_ram = new VirtualRAM(); }
-void cleanup_ram() { if (g_ram) { delete g_ram; g_ram = nullptr; } }
-void py_write_ram(uint64_t addr, uint64_t val) { if (g_ram) g_ram->write(addr, val); }
-
-// НОВОЕ: Функция для чтения памяти из Python (чтобы проверить результат)
-uint64_t py_read_ram(uint64_t addr) { 
-    if (g_ram) return g_ram->read(addr); 
-    return 0;
+    // DPI Write: Verilog (Client) writes to C++ RAM (Server)
+    // Signature: function void dpi_write_burst(input longint addr, input int len, input bit [63:0] data []);
+    void dpi_write_burst(long long addr, int len, const svOpenArrayHandle data) {
+        if (!g_ram) return;
+        
+        std::vector<uint64_t> vec;
+        vec.reserve(len);
+        
+        for (int i = 0; i < len; ++i) {
+            svBitVecVal* elem = (svBitVecVal*)svGetArrElemPtr1(data, i);
+            if (elem) {
+                // Собираем 64-битное число из двух 32-битных чанков
+                uint64_t val = (uint64_t)elem[0] | ((uint64_t)elem[1] << 32);
+                vec.push_back(val);
+            } else {
+                vec.push_back(0);
+            }
+        }
+        
+        g_ram->write(addr, vec);
+    }
 }

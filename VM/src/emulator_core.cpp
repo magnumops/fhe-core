@@ -1,56 +1,74 @@
 #include <pybind11/pybind11.h>
-#include "Vcopy_engine.h"
+#include <pybind11/stl.h>   // <--- FIX: Required for std::vector conversion
+#include "Vntt_engine.h"
 #include "verilated.h"
-
-void init_ram();
-void cleanup_ram();
-void py_write_ram(uint64_t addr, uint64_t val);
-uint64_t py_read_ram(uint64_t addr);
-
-void py_init_fhe();
-pybind11::bytes py_encrypt(int value);
-int py_decrypt(pybind11::bytes cipher);
-pybind11::bytes py_add(pybind11::bytes c1, pybind11::bytes c2);
+#include "dpi_impl.h"
 
 namespace py = pybind11;
 
-class CopySim {
+// Global pointer for Singleton Pattern (DPI access)
+VirtualRAM* g_ram = nullptr;
+
+class Emulator {
+    Vntt_engine* top;
+    VirtualRAM* ram;
 public:
-    Vcopy_engine* top;
-    CopySim() {
-        init_ram();
-        top = new Vcopy_engine;
-        top->clk = 0; top->start = 0; top->eval();
+    Emulator() {
+        // Initialize RAM
+        ram = new VirtualRAM();
+        g_ram = ram; // Set global for DPI
+
+        // Initialize Verilator Model
+        // Legacy API for compatibility with older Verilator in Ubuntu 22.04
+        top = new Vntt_engine;
+        top->rst = 1; top->clk = 0; top->start = 0;
+        top->eval();
+        top->rst = 0; top->eval();
     }
-    ~CopySim() { top->final(); delete top; cleanup_ram(); }
-    
-    void step() { top->clk = 1; top->eval(); top->clk = 0; top->eval(); }
-    
-    void start_copy(uint64_t src, uint64_t dst) {
-        top->src_addr = src;
-        top->dst_addr = dst;
+
+    ~Emulator() {
+        delete top;
+        delete ram;
+        g_ram = nullptr;
+    }
+
+    // --- MEMORY ACCESS ---
+    void write_ram(uint64_t addr, const std::vector<uint64_t>& data) {
+        ram->write(addr, data);
+    }
+
+    std::vector<uint64_t> read_ram(uint64_t addr, size_t size) {
+        return ram->read(addr, size);
+    }
+
+    // --- CORE EXECUTION ---
+    void run_ntt(uint64_t dma_addr) {
+        top->dma_addr = dma_addr;
         top->start = 1;
-        step();
+        
+        // Pulse Start
+        top->clk = 0; top->eval();
+        top->clk = 1; top->eval();
         top->start = 0;
-        step();
+        
+        // Wait for Done
+        int timeout = 10000;
+        while (!top->done && timeout > 0) {
+            top->clk = 0; top->eval();
+            top->clk = 1; top->eval();
+            timeout--;
+        }
+        
+        if (timeout == 0) {
+            throw std::runtime_error("NTT Hardware Timeout!");
+        }
     }
-    
-    bool is_done() { return top->done; }
 };
 
 PYBIND11_MODULE(logos_emu, m) {
-    m.doc() = "Logos FHE Emulator Final MVP";
-    m.def("py_write_ram", &py_write_ram);
-    m.def("py_read_ram", &py_read_ram);
-
-    m.def("fhe_init", &py_init_fhe);
-    m.def("fhe_encrypt", &py_encrypt);
-    m.def("fhe_decrypt", &py_decrypt);
-
-    py::class_<CopySim>(m, "CopySim")
+    py::class_<Emulator>(m, "Emulator")
         .def(py::init<>())
-        .def("step", &CopySim::step)
-        .def("start_copy", &CopySim::start_copy)
-        // ИСПРАВЛЕНИЕ: Теперь валидный C++ комментарий
-        .def("is_done", &CopySim::is_done);
+        .def("write_ram", &Emulator::write_ram)
+        .def("read_ram", &Emulator::read_ram)
+        .def("run_ntt", &Emulator::run_ntt);
 }

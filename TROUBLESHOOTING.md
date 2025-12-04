@@ -174,3 +174,25 @@ delete top;
 2. Аппаратная реализация вычисляет **Standard (Cyclic) NTT**. Если криптосистема требует **Negacyclic NTT** (как BFV), необходимо домножать входные данные на $\psi^i$ перед подачей в NTT (или использовать другой набор твиддлов).
 **Решение:**
 Перед загрузкой данных в DIT-ускоритель обязательно выполнять программную перестановку битов (Bit-Reversal Permutation).
+
+## Missing C++ Headers (Standard Library)
+**Проблема:** Ошибки вида `size_t has not been declared` или `std::vector` not found.
+**Причина:** Современные компиляторы (GCC 11+) требуют явного подключения заголовков.
+**Решение:**
+Всегда подключать:
+* `<cstddef>` для `size_t`.
+* `<cstdint>` для `uint64_t`.
+* `<vector>` для `std::vector`.
+* `<pybind11/stl.h>` для автоматической конвертации Python list <-> std::vector.
+
+## Verilog vs DPI Type Mismatch (reg vs bit)
+**Проблема:** При передаче массива из C++ в Verilog через DPI Open Array (`output bit [63:0] data []`), данные не загружаются (остаются нулями), если Verilog-массив объявлен как `reg`.
+**Причина:** `reg` в SystemVerilog — это 4-state logic (0, 1, X, Z). C++ типы (`svBitVecVal`) — это 2-state logic. Функция `svGetArrElemPtr` для `reg` возвращает сложную структуру `svLogicVecVal`, несовместимую с простой записью битов.
+**Решение:**
+При использовании DPI Open Arrays для передачи данных, Verilog-массив должен быть объявлен как **`bit`** (2-state logic).
+\`\`\`verilog
+// Правильно:
+bit [63:0] mem [0:N-1]; 
+// Неправильно:
+// reg [63:0] mem [0:N-1];
+\`\`\`
