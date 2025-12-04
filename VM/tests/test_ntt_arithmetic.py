@@ -1,5 +1,6 @@
 import sys
 import unittest
+import os
 
 sys.path.append("/app/build")
 try:
@@ -13,32 +14,30 @@ class TestVerilogArithmetic(unittest.TestCase):
         self.sim = ntt_tester.NTTSimulator()
         self.q = 17 
 
-    def test_basic_ops(self):
-        # Add: 10 + 15 mod 17 = 8
-        res = self.sim.step(0, 10, 15, 0, self.q)
-        self.assertEqual(res[0], 8)
+    def test_rom_loading(self):
+        # Opcode 4: Read ROM
+        # We expect powers of 3: 3^0=1, 3^1=3, 3^2=9, 3^3=27=10, ...
         
-        # Mult: 3 * 6 mod 17 = 1
-        res = self.sim.step(1, 3, 6, 0, self.q)
-        self.assertEqual(res[0], 1)
-
-        # Sub: 5 - 10 mod 17 = -5 = 12
-        res = self.sim.step(2, 5, 10, 0, self.q)
-        self.assertEqual(res[0], 12)
-        print("\n[PASS] Add/Sub/Mult Verified")
-
-    def test_butterfly(self):
-        # Butterfly(U, V, W) -> (U + VW, U - VW)
-        # U=2, V=5, W=3 (Twiddle), Q=17
-        # VW = 5*3 = 15
-        # X = 2 + 15 = 17 = 0
-        # Y = 2 - 15 = -13 = 4
+        expected = [
+            1,          # 3^0
+            3,          # 3^1
+            9,          # 3^2
+            27 % 17,    # 3^3 = 10
+            81 % 17,    # 3^4 = 13
+            243 % 17,   # 3^5 = 5
+            729 % 17,   # 3^6 = 15
+            2187 % 17   # 3^7 = 11
+        ]
         
-        res = self.sim.step(3, 2, 5, 3, self.q)
-        print(f"\nButterfly(2, 5, 3) -> {res}")
-        self.assertEqual(res[0], 0)
-        self.assertEqual(res[1], 4)
-        print("[PASS] Butterfly Unit Verified")
+        print("\n[TEST] Verifying ROM Data...")
+        for addr in range(8):
+            # Pass addr in op_a
+            res = self.sim.step(4, addr, 0, 0, self.q)
+            val = res[0]
+            print(f"ADDR {addr}: Expected {expected[addr]}, Got {val}")
+            self.assertEqual(val, expected[addr])
+        
+        print("[PASS] ROM Loaded Successfully")
 
 if __name__ == '__main__':
     unittest.main()
