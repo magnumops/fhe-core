@@ -1,5 +1,5 @@
 #include <pybind11/pybind11.h>
-#include <pybind11/stl.h> 
+#include <pybind11/stl.h>
 #include "Vntt_engine.h"
 #include "verilated.h"
 #include "dpi_impl.h"
@@ -25,17 +25,20 @@ public:
     void write_ram(uint64_t addr, const std::vector<uint64_t>& data) { ram->write(addr, data); }
     std::vector<uint64_t> read_ram(uint64_t addr, size_t size) { return ram->read(addr, size); }
 
-    // Updated run_ntt with mode
-    void run_ntt(uint64_t dma_addr, int mode) {
+    // Updated run_ntt with Q, MU, N_INV
+    void run_ntt(uint64_t dma_addr, int mode, uint64_t q, uint64_t mu, uint64_t n_inv) {
         top->dma_addr = dma_addr;
-        top->mode = mode; // 0=NTT, 1=INTT
+        top->mode = mode;
+        top->q = q;       // Pass Q
+        top->mu = mu;     // Pass MU
+        top->n_inv = n_inv; // Pass N_INV
         top->start = 1;
-        
+
         top->clk = 0; top->eval();
         top->clk = 1; top->eval();
         top->start = 0;
-        
-        int timeout = 2000000; // Increased for scale loop
+
+        int timeout = 2000000;
         while (!top->done && timeout > 0) {
             top->clk = 0; top->eval();
             top->clk = 1; top->eval();
