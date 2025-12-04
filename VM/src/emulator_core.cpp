@@ -1,11 +1,15 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include "Vlogos_core.h" // NEW TOP LEVEL
+#include "Vlogos_core.h"
 #include "verilated.h"
 #include "dpi_impl.h"
 #include "isa_spec.h"
 
 namespace py = pybind11;
+
+// === REQUIRED BY VERILATOR FOR $time ===
+double sc_time_stamp() { return 0; }
+// =======================================
 
 VirtualRAM* g_ram = nullptr;
 CommandQueue* g_queue = nullptr;
@@ -19,11 +23,10 @@ public:
         ram = new VirtualRAM();
         queue = new CommandQueue();
         g_ram = ram;
-        g_queue = queue; // Though dpi_impl uses static global, this keeps it symmetric
+        g_queue = queue;
         
         top = new Vlogos_core;
         top->rst = 1; top->clk = 0; 
-        // Default context
         top->ctx_q = 0; top->ctx_mu = 0; top->ctx_n_inv = 0;
         
         top->eval();
@@ -40,45 +43,47 @@ public:
         top->ctx_n_inv = n_inv;
     }
 
-    // Push raw command
     void push_command(uint64_t cmd) {
         queue->push(cmd);
     }
 
-    // Helper: Push NTT Command
-    void push_ntt_op(uint64_t addr, int mode) {
-        // [63:56] Opcode | [55:0] Addr
-        uint64_t op = (mode == 1) ? OPC_INTT : OPC_NTT;
-        uint64_t cmd = (op << 56) | (addr & 0x00FFFFFFFFFFFFFF);
-        queue->push(cmd);
-    }
-    
-    // Helper: Push Halt
     void push_halt() {
         uint64_t cmd = (uint64_t)OPC_HALT << 56;
         queue->push(cmd);
     }
 
-    // Run until HALT command executed
+    // Load: HostAddr -> Slot
+    void push_load_op(int slot, uint64_t host_addr) {
+        uint64_t cmd = ((uint64_t)OPC_LOAD << 56) | 
+                       ((uint64_t)(slot & 0xF) << 52) | 
+                       (host_addr & 0xFFFFFFFFFFFF);
+        queue->push(cmd);
+    }
+
+    // Store: Slot -> HostAddr
+    void push_store_op(int slot, uint64_t host_addr) {
+        uint64_t cmd = ((uint64_t)OPC_STORE << 56) | 
+                       ((uint64_t)(slot & 0xF) << 52) | 
+                       (host_addr & 0xFFFFFFFFFFFF);
+        queue->push(cmd);
+    }
+
+    // NTT: Slot, Mode
+    void push_ntt_op(int slot, int mode) {
+        uint64_t op = (mode == 1) ? OPC_INTT : OPC_NTT;
+        uint64_t cmd = (op << 56) | 
+                       ((uint64_t)(slot & 0xF) << 52);
+        queue->push(cmd);
+    }
+
     void run() {
         int timeout = 5000000;
-        
-        // Ensure we are not halted initially
-        if (top->halted) {
-             // If halted, maybe we need to reset or just toggle clock?
-             // Since we didn't expose hard reset here, let's assume halted resets on new cmd? 
-             // No, FSM S_HALTED needs Reset. 
-             // Let's Pulse Reset briefly at start of Run to be safe? 
-             // Ideally we shouldn't reset RAM.
-             // For now, let's rely on constructor reset.
-        }
-
         while (!top->halted && timeout > 0) {
             top->clk = 0; top->eval();
             top->clk = 1; top->eval();
             timeout--;
         }
-        if (timeout == 0) throw std::runtime_error("Logos Core Timeout (Never Halted)");
+        if (timeout == 0) throw std::runtime_error("Logos Core Timeout");
     }
 };
 
@@ -89,7 +94,9 @@ PYBIND11_MODULE(logos_emu, m) {
         .def("read_ram", &Emulator::read_ram)
         .def("set_context", &Emulator::set_context)
         .def("push_command", &Emulator::push_command)
-        .def("push_ntt_op", &Emulator::push_ntt_op)
         .def("push_halt", &Emulator::push_halt)
+        .def("push_load_op", &Emulator::push_load_op)
+        .def("push_store_op", &Emulator::push_store_op)
+        .def("push_ntt_op", &Emulator::push_ntt_op)
         .def("run", &Emulator::run);
 }

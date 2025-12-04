@@ -14,10 +14,10 @@ find_package(pybind11 REQUIRED)
 find_package(SEAL REQUIRED)
 
 set(VERILATOR_INCLUDE_DIR "/usr/share/verilator/include")
-include_directories(${VERILATOR_INCLUDE_DIR} ${VERILATOR_INCLUDE_DIR}/vltstd ${CMAKE_CURRENT_BINARY_DIR})
+# Add src to include path so emulator_core can find headers easily
+include_directories(${VERILATOR_INCLUDE_DIR} ${VERILATOR_INCLUDE_DIR}/vltstd ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_SOURCE_DIR}/src)
 
 # --- MAIN TARGET: LOGOS CORE (Command Processor + NTT) ---
-# Changed from ntt_engine.v to logos_core.v
 set(RTL_MAIN "${CMAKE_SOURCE_DIR}/src/rtl/ntt/logos_core.v")
 set(RTL_DEPS
     "${CMAKE_SOURCE_DIR}/src/rtl/ntt/command_processor.v"
@@ -30,13 +30,13 @@ set(RTL_DEPS
     "${CMAKE_SOURCE_DIR}/src/rtl/ntt/mod_mult.v"
 )
 
-# Output files will now start with Vlogos_core
+# Added --output-split 0 to force single file generation
 add_custom_command(
     OUTPUT Vlogos_core.cpp Vlogos_core.h Vlogos_core__Syms.cpp Vlogos_core__Syms.h Vlogos_core__Slow.cpp
-    COMMAND verilator --cc --exe --Mdir . --CFLAGS "-fPIC" -I${CMAKE_SOURCE_DIR}/src/rtl/ntt ${RTL_MAIN}
+    COMMAND verilator --cc --exe --Mdir . --CFLAGS "-fPIC" --output-split 0 --output-split-cfuncs 0 -I${CMAKE_SOURCE_DIR}/src/rtl/ntt ${RTL_MAIN}
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     DEPENDS ${RTL_MAIN} ${RTL_DEPS}
-    COMMENT "Verilating logos_core (Phase 3 Top Level)..."
+    COMMENT "Verilating logos_core (Phase 3 Top Level, No Split)..."
 )
 
 pybind11_add_module(logos_emu

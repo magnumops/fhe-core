@@ -4,32 +4,33 @@ module ntt_engine #(
 )(
     input  wire        clk,
     input  wire        rst,
-    input  wire        start,
-    input  wire        mode,
-    input  wire [63:0] dma_addr,
-    // DYNAMIC RNS PARAMETERS
-    input  wire [63:0] q,        // Modulus
-    input  wire [63:0] mu,       // Barrett Constant
-    input  wire [63:0] n_inv,    // Inverse N mod Q (for INTT scaling)
-    output reg         done
+    input  wire        cmd_valid,
+    input  wire [7:0]  cmd_opcode,
+    input  wire [3:0]  cmd_slot,
+    input  wire [47:0] cmd_dma_addr,
+    input  wire [63:0] q,
+    input  wire [63:0] mu,
+    input  wire [63:0] n_inv,
+    output reg         ready
 );
 
     import "DPI-C" function void dpi_read_burst(input longint addr, input int len, output bit [63:0] data []);
     import "DPI-C" function void dpi_write_burst(input longint addr, input int len, input bit [63:0] data []);
 
-    bit [63:0] mem [0:N-1];
+    bit [63:0] mem [0:3][0:N-1];
 
+    reg [1:0] current_slot;
+    reg       mode_intt;
+    reg       agu_start;
+    wire      agu_valid, agu_done;
     wire [N_LOG-1:0] agu_addr_u, agu_addr_v, agu_addr_w;
-    wire agu_valid, agu_done;
-    reg  agu_start;
 
-    localparam S_IDLE  = 0;
-    localparam S_LOAD  = 1;
-    localparam S_CALC  = 2;
-    localparam S_SCALE = 3; 
-    localparam S_STORE = 4;
-    localparam S_DONE  = 5;
-
+    localparam S_IDLE      = 0;
+    localparam S_DMA_READ  = 1;
+    localparam S_DMA_WRITE = 2;
+    localparam S_CALC      = 3;
+    localparam S_SCALE     = 4; 
+    
     reg [2:0] state;
 
     ntt_control #(.N_LOG(N_LOG), .N(N)) u_control (
@@ -39,79 +40,100 @@ module ntt_engine #(
     );
 
     wire [63:0] w_data;
-    twiddle_rom u_rom (.addr({mode, agu_addr_w}), .data(w_data));
+    twiddle_rom u_rom (.addr({mode_intt, agu_addr_w}), .data(w_data));
 
-    wire [63:0] u_in = mem[agu_addr_u];
-    wire [63:0] v_in = mem[agu_addr_v];
+    wire [63:0] u_in = mem[current_slot][agu_addr_u];
+    wire [63:0] v_in = mem[current_slot][agu_addr_v];
     wire [63:0] u_out, v_out;
 
-    // Butterfly uses dynamic Q and MU
     butterfly u_bf (
         .u(u_in), .v(v_in), .w(w_data), .q(q), .mu(mu),
         .u_out(u_out), .v_out(v_out)
     );
 
     reg [N_LOG:0] scale_idx;
-    wire [63:0] scale_in = mem[scale_idx[N_LOG-1:0]];
+    wire [63:0] scale_in = mem[current_slot][scale_idx[N_LOG-1:0]];
     wire [63:0] scale_out;
-
-    // Scaler uses dynamic Q, MU, and N_INV
     mod_mult u_scaler (
         .a(scale_in), .b(n_inv), .q(q), .mu(mu), .out(scale_out)
     );
 
+    localparam [7:0] OPC_LOAD  = 8'h02;
+    localparam [7:0] OPC_STORE = 8'h03;
+    localparam [7:0] OPC_NTT   = 8'h10;
+    localparam [7:0] OPC_INTT  = 8'h11;
+
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             state <= S_IDLE;
-            done <= 0;
+            ready <= 1;
             agu_start <= 0;
-            scale_idx <= 0;
+            current_slot <= 0;
         end else begin
+            // DEBUG LOGGING
+            if (state != S_IDLE || cmd_valid) 
+                $display("[ENGINE] Time: %t, State: %d, Ready: %d, Valid: %d, Op: %h", $time, state, ready, cmd_valid, cmd_opcode);
+
             case (state)
                 S_IDLE: begin
-                    done <= 0;
-                    if (start) state <= S_LOAD;
+                    ready <= 1;
+                    if (cmd_valid) begin
+                        ready <= 0;
+                        current_slot <= cmd_slot[1:0];
+                        
+                        case (cmd_opcode)
+                            OPC_LOAD:  state <= S_DMA_READ;
+                            OPC_STORE: state <= S_DMA_WRITE;
+                            OPC_NTT: begin
+                                mode_intt <= 0;
+                                state <= S_CALC;
+                                agu_start <= 1;
+                            end
+                            OPC_INTT: begin
+                                mode_intt <= 1;
+                                state <= S_CALC;
+                                agu_start <= 1;
+                            end
+                            default: state <= S_IDLE;
+                        endcase
+                    end
                 end
 
-                S_LOAD: begin
-                    dpi_read_burst(dma_addr, N, mem);
-                    state <= S_CALC;
-                    agu_start <= 1;
+                S_DMA_READ: begin
+                    $display("[ENGINE] Executing DMA READ to Slot %d", current_slot);
+                    dpi_read_burst({16'b0, cmd_dma_addr}, N, mem[current_slot]);
+                    state <= S_IDLE;
+                end
+
+                S_DMA_WRITE: begin
+                    $display("[ENGINE] Executing DMA WRITE from Slot %d", current_slot);
+                    dpi_write_burst({16'b0, cmd_dma_addr}, N, mem[current_slot]);
+                    state <= S_IDLE;
                 end
 
                 S_CALC: begin
                     agu_start <= 0;
                     if (agu_valid) begin
-                        mem[agu_addr_u] <= u_out;
-                        mem[agu_addr_v] <= v_out;
+                        mem[current_slot][agu_addr_u] <= u_out;
+                        mem[current_slot][agu_addr_v] <= v_out;
                     end
                     if (agu_done) begin
-                        if (mode == 1) begin
+                        if (mode_intt == 1) begin
                             state <= S_SCALE;
                             scale_idx <= 0;
                         end else begin
-                            state <= S_STORE;
+                            state <= S_IDLE;
                         end
                     end
                 end
 
                 S_SCALE: begin
                     if (scale_idx < N) begin
-                        mem[scale_idx[N_LOG-1:0]] <= scale_out;
+                        mem[current_slot][scale_idx[N_LOG-1:0]] <= scale_out;
                         scale_idx <= scale_idx + 1;
                     end else begin
-                        state <= S_STORE;
+                        state <= S_IDLE;
                     end
-                end
-
-                S_STORE: begin
-                    dpi_write_burst(dma_addr, N, mem);
-                    state <= S_DONE;
-                end
-
-                S_DONE: begin
-                    done <= 1;
-                    if (!start) state <= S_IDLE;
                 end
             endcase
         end
