@@ -1,0 +1,12 @@
+VM:
+CMakeLists.txt
+Dockerfile
+src
+tests
+
+VM/src:
+main.cpp
+spike_pybind.cpp
+
+VM/tests:
+test_day2.py
