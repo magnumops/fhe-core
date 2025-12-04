@@ -1,10 +1,10 @@
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h> // Для возврата pair/tuple
 #include <verilated.h>
 #include "Vntt_arith_unit.h"
 
 namespace py = pybind11;
 
-// Класс-обертка для симулятора
 class NTTSimulator {
     Vntt_arith_unit* top;
 public:
@@ -18,19 +18,18 @@ public:
     }
     ~NTTSimulator() { delete top; }
 
-    uint64_t step(int opcode, uint64_t a, uint64_t b, uint64_t q) {
-        // Установка входов
+    // Возвращаем кортеж (res1, res2)
+    std::pair<uint64_t, uint64_t> step(int opcode, uint64_t a, uint64_t b, uint64_t w, uint64_t q) {
         top->opcode = opcode;
         top->op_a = a;
         top->op_b = b;
+        top->op_w = w; // New input
         top->op_q = q;
         
-        // Такт часов
         top->clk = 0; top->eval();
         top->clk = 1; top->eval();
         
-        // Возврат результата
-        return top->res_out;
+        return std::make_pair(top->res_out_1, top->res_out_2);
     }
 };
 
