@@ -46,3 +46,27 @@ pybind11_add_module(logos_emu
     ${VERILATOR_INCLUDE_DIR}/verilated_dpi.cpp
 )
 target_link_libraries(logos_emu PRIVATE SEAL::seal)
+
+# --- DAY 2 TARGET: ALU TESTER (ISOLATED) ---
+set(RTL_ALU "${CMAKE_SOURCE_DIR}/src/rtl/ntt/vec_alu.v")
+set(RTL_ALU_DEPS
+    "${CMAKE_SOURCE_DIR}/src/rtl/ntt/mod_add.v"
+    "${CMAKE_SOURCE_DIR}/src/rtl/ntt/mod_sub.v"
+    "${CMAKE_SOURCE_DIR}/src/rtl/ntt/mod_mult.v"
+)
+
+add_custom_command(
+    OUTPUT Vvec_alu.cpp Vvec_alu.h Vvec_alu__Syms.cpp Vvec_alu__Syms.h Vvec_alu__Slow.cpp
+    COMMAND verilator --cc --exe --Mdir . --CFLAGS "-fPIC" -I${CMAKE_SOURCE_DIR}/src/rtl/ntt ${RTL_ALU}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    DEPENDS ${RTL_ALU} ${RTL_ALU_DEPS}
+    COMMENT "Verilating vec_alu (Day 2 Component)..."
+)
+
+pybind11_add_module(alu_tester
+    src/alu_tester.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vvec_alu.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vvec_alu__Syms.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vvec_alu__Slow.cpp
+    ${VERILATOR_INCLUDE_DIR}/verilated.cpp
+)
