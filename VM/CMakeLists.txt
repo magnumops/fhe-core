@@ -49,3 +49,6 @@ target_include_directories(logos_emu PRIVATE
 
 # Важно: Verilator код должен быть собран с -fPIC, так как это shared library
 target_compile_options(logos_emu PRIVATE -fPIC)
+
+# --- Spike Memory (Day 5) ---
+add_executable(mmap_bench src/spike_memory/mmap_bench.cpp)

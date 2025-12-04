@@ -17,8 +17,11 @@ RUN pip3 install pybind11
 WORKDIR /app
 COPY . /app
 
-# Чистая сборка
+# Сборка
 RUN rm -rf build && mkdir -p build && cd build && cmake .. && make
 
-# Финальный тест
+# Тесты Фазы 1
 RUN python3 tests/test_day4_integration.py
+
+# Тест Фазы 2 (День 5)
+RUN ./build/mmap_bench
