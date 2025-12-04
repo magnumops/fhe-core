@@ -1,36 +1,94 @@
-# Logos FHE Emulator (MVP)
+# Logos FHE Emulator (Phase 2: NTT Engine)
 
-## Архитектура
-Проект реализует гибридную эмуляцию FHE-ускорителя:
-1.  **Level 1: Python SDK (`src/python/logos.py`)** — Высокоуровневый интерфейс, Shadow Execution.
-2.  **Level 2: C++ Bridge (`src/emulator_core.cpp`)** — Связывает Python, SEAL и Verilator через PyBind11.
-3.  **Level 3: Crypto Engine (`src/fhe_impl.cpp`)** — Обертка над Microsoft SEAL (BFV Scheme).
-4.  **Level 4: Memory (`src/dpi_impl.cpp`)** — Эмуляция 1 ТБ памяти через `mmap` (Sparse Files).
-5.  **Level 5: Hardware (`src/rtl/*.v`)** — Verilog-модели, исполняемые через Verilator.
+**Текущая Версия:** v2.0 (Platinum Loop Verified)
+**Статус:** Phase 2 Completed
+**Дата обновления:** Декабрь 2025
 
-## Как запускать
-Проект полностью контейнеризирован.
+---
 
-### Сборка и Тесты
+## 1. Архитектура Системы
+Проект представляет собой аппаратно-программный эмулятор FHE-ускорителя, реализующий схему BFV. На текущем этапе реализовано ядро **NTT (Number Theoretic Transform)**.
+
+### Стек Технологий
+1.  **Level 1: Python SDK** (`src/python/`)
+    *   Оркестрация тестов.
+    *   **Bit-Reversal Permutation:** Программная перестановка данных перед загрузкой (требование DIT алгоритма).
+    *   Верификация результатов (Golden Model).
+2.  **Level 2: C++ Driver** (`src/emulator_core.cpp`)
+    *   Управление симуляцией Verilator.
+    *   DPI-мост для доступа к памяти.
+3.  **Level 3: Virtual Memory** (`src/dpi_impl.cpp`)
+    *   Эмуляция 1 ТБ памяти через `std::map` (Sparse Storage).
+    *   Доступ из Verilog через **DPI Open Arrays**.
+4.  **Level 4: Hardware RTL** (`src/rtl/ntt/`)
+    *   Реализация алгоритма **Radix-2 Cooley-Tukey DIT**.
+
+---
+
+## 2. Аппаратная Реализация (RTL)
+Модуль `ntt_engine.v` является ядром системы.
+
+| Модуль | Описание |
+| :--- | :--- |
+| **ntt_engine.v** | Top-level. FSM (LOAD -> CALC -> SCALE -> STORE). Поддерживает NTT и INTT режимы. |
+| **ntt_control.v** | AGU (Address Generation Unit). Реализует вложенные циклы Кули-Тьюки (Stages, Blocks, Pairs). |
+| **butterfly.v** | Вычислительное ядро. Выполняет операции `(U ± V*W) mod Q`. |
+| **twiddle_rom.v** | Память поворотных множителей. Хранит 8192 коэффициента (4K прямых + 4K обратных). |
+| **mod_alu** | Модулярная арифметика (`mod_add`, `mod_sub`, `mod_mult`) с защитой от переполнения. |
+
+### Ключевые Технические Решения
+*   **Тип Памяти:** Используется `bit [63:0]` (2-state) вместо `reg` для совместимости с C++ DPI.
+*   **INTT Scaling:** В режиме обратного преобразования (Mode 1) выполняется пост-умножение на $N^{-1} \mod Q$.
+*   **Bit-Reversal:** Выполняется программно (на хосте) перед загрузкой данных. Аппаратный блок ожидает переставленные данные и выдает результат в естественном порядке.
+
+---
+
+## 3. Параметры Конфигурации (N=4096)
+Система настроена на работу с кольцом полиномов $R_q = \mathbb{Z}_q[x] / (x^N + 1)$.
+
+*   **Размер полинома (N):** 4096
+*   **Модуль коэффициентов (Q):** `1073750017` (30-bit prime, $Q \equiv 1 \pmod{2N}$)
+*   **Примитивный корень ($\Psi$):** `996876704`
+*   **Обратный корень ($\Psi^{-1}$):** `1073487869`
+*   **Масштабный множитель ($N^{-1}$):** `1073487871`
+
+---
+
+## 4. Инструкция по Запуску
+
+### Сборка и Тестирование (Docker)
+Весь цикл сборки и запуска "Платиновой Петли" упакован в Dockerfile.
+
 \`\`\`bash
 cd VM
 docker build -t logos-emu .
 \`\`\`
-Эта команда:
-1.  Соберет окружение (Ubuntu, CMake, Verilator, Python).
-2.  Скомпилирует SEAL (кэшируется).
-3.  Соберет проект `logos_vm`.
-4.  Запустит финальный тест `tests/test_day10_final.py`.
 
-### Ручной запуск (внутри контейнера)
-\`\`\`bash
-docker run -it logos-emu /bin/bash
-# Внутри:
-python3 tests/test_day10_final.py
+**Ожидаемый результат:**
+\`\`\`text
+[SCALING] Testing N=4096...
+[PASS] Platinum Loop Verified.
 \`\`\`
 
-## Структура
-*   `VM/src/rtl/` — Исходники "железа" (Verilog).
-*   `VM/src/python/` — Python SDK.
-*   `VM/src/*.cpp` — C++ ядро эмулятора.
-*   `VM/tests/` — Интеграционные тесты.
+### Структура Директорий
+\`\`\`text
+VM/
+├── src/
+│   ├── emulator_core.cpp   # C++ Драйвер
+│   ├── dpi_impl.cpp        # Реализация памяти (DPI)
+│   ├── python/             # Генераторы конфигов и SDK
+│   └── rtl/
+│       └── ntt/            # Verilog исходники (Engine, Control, ROM, ALU)
+├── tests/
+│   ├── test_day10_platinum.py  # ФИНАЛЬНЫЙ ТЕСТ
+│   └── ...
+├── ntt_config_4k.py        # Текущие параметры (Gen-generated)
+└── twiddles_combined.hex   # Прошивка ROM
+\`\`\`
+
+---
+
+## 5. Известные Ограничения (Roadmap to Phase 3)
+1.  **Одноядерность:** Поддерживается только один модуль Q. Для реального BFV нужен RNS (3-4 модуля).
+2.  **Синхронная Память:** Используется эмуляция Distributed RAM. Для синтеза требуется поддержка BlockRAM (latency > 1).
+3.  **Нет Векторного ALU:** Пока умеем делать только NTT/INTT. Сложение и умножение самих векторов (ciphertext + ciphertext) запланировано на Фазу 3.
