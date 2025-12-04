@@ -1,57 +1,56 @@
 #include <pybind11/pybind11.h>
-#include "Vcounter.h"
+#include "Vmem_test.h" // Теперь используем mem_test вместо counter
 #include "verilated.h"
+
+// Объявления внешних функций из dpi_impl.cpp
+void init_ram();
+void cleanup_ram();
+void py_write_ram(uint64_t addr, uint64_t val);
 
 namespace py = pybind11;
 
-class CounterSim {
+// Симулятор для теста памяти
+class MemorySim {
 public:
-    Vcounter* top;
+    Vmem_test* top;
     
-    CounterSim() {
-        top = new Vcounter;
+    MemorySim() {
+        init_ram(); // Создаем память при старте
+        top = new Vmem_test;
         top->clk = 0;
-        top->rst = 1; // При старте держим Reset
         top->eval();
     }
 
-    ~CounterSim() {
+    ~MemorySim() {
         top->final();
         delete top;
+        cleanup_ram(); // Удаляем память
     }
 
-    // Сброс (Reset)
-    void reset_device() {
-        top->rst = 1;
-        top->eval();
-        top->rst = 0; // Отпускаем Reset
-        top->eval();
-    }
-
-    // Один полный такт (0 -> 1 -> 0)
     void step() {
-        // Позитивный фронт (Rising Edge)
-        top->clk = 1;
-        top->eval();
-        
-        // Негативный фронт (Falling Edge)
-        top->clk = 0;
+        top->clk = 1; top->eval();
+        top->clk = 0; top->eval();
+    }
+
+    void set_addr(uint64_t addr) {
+        top->addr = addr;
         top->eval();
     }
 
-    // Чтение выхода
-    int get_count() {
-        return top->count;
+    uint64_t get_data() {
+        return top->data;
     }
 };
 
-// Биндинги для Python
 PYBIND11_MODULE(logos_emu, m) {
-    m.doc() = "Logos FHE Emulator Core (Verilator Backend)";
+    m.doc() = "Logos FHE Emulator with DPI Memory";
 
-    py::class_<CounterSim>(m, "CounterSim")
+    // Экспортируем функции управления памятью
+    m.def("py_write_ram", &py_write_ram, "Write to RAM from Python");
+
+    py::class_<MemorySim>(m, "MemorySim")
         .def(py::init<>())
-        .def("reset_device", &CounterSim::reset_device)
-        .def("step", &CounterSim::step)
-        .def("get_count", &CounterSim::get_count);
+        .def("step", &MemorySim::step)
+        .def("set_addr", &MemorySim::set_addr)
+        .def("get_data", &MemorySim::get_data);
 }
