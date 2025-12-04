@@ -1,12 +1,12 @@
 module twiddle_rom (
-    input  wire [11:0] addr, // 12 bit addr for 4096
+    input  wire [12:0] addr, // 13 bit addr (Bit 12 selects Fwd/Inv)
     output reg  [63:0] data
 );
-    // 4096 слов по 64 бита
-    reg [63:0] mem [0:4095];
+    // 8192 слова
+    reg [63:0] mem [0:8191];
 
     initial begin
-        $readmemh("twiddles_4k.hex", mem);
+        $readmemh("twiddles_combined.hex", mem);
     end
 
     always @(*) begin

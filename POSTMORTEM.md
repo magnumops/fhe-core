@@ -85,3 +85,10 @@
 | PM-P2-011 | Использование старого Dockerfile для новой фазы. | Запуск `test_day10_final.py`. | Runtime Error. | Dockerfile не был обновлен под изменение API и архитектуры проекта. |
 | PM-P2-012 | Pybind11 конвертация списков. | Вызов метода с Python list. | TypeError. | Забыт `<pybind11/stl.h>`. |
 | PM-P2-013 | Совместимость Verilog `reg` и DPI `bit`. | Объявлен `reg mem` для приема данных из C++. | Silent Failure (Zero Data). | Фундаментальная несовместимость типов памяти при использовании Open Arrays. DPI `svGetArrElemPtr` ведет себя по-разному для 2-state и 4-state типов. Требуется использовать `bit`. |
+
+## Сессия: Фаза 2 (INTT)
+### Эпизод: День 9 - Обратное Преобразование
+
+| ID | Гипотеза / Проблема | Предпринятое Действие | Результат | Анализ Провала (Root Cause) |
+| :--- | :--- | :--- | :--- | :--- |
+| PM-P2-014 | Генератор конфига `gen_twiddles_intt.py` найдет `ntt_config_4k` в PYTHONPATH по умолчанию. | Запуск скрипта без `sys.path.append`. | Runtime Error & Data Corruption. | Скрипт упал, не сгенерировал N_INV. `sed` вставил пустое значение в Verilog -> Syntax Error. Исправлено добавлением `os.getcwd()` в sys.path и проверкой переменных в shell-скрипте. |
