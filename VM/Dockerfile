@@ -17,13 +17,8 @@ RUN pip3 install pybind11
 WORKDIR /app
 COPY . /app
 
-# Сборка
-RUN mkdir -p build && cd build && cmake .. && make
+# Чистая сборка
+RUN rm -rf build && mkdir -p build && cd build && cmake .. && make
 
-# Тесты
-# 1. PyBind тест (День 2)
-RUN python3 tests/test_day2.py
-
-# 2. Verilator тест (День 3)
-# Запускаем скомпилированный бинарник
-RUN ./build/verilator_test
+# Финальный тест
+RUN python3 tests/test_day4_integration.py

@@ -25,3 +25,11 @@ add_custom_command(
     ...
 )
 add_executable(test_sim ... Vcounter.cpp Vcounter__Syms.cpp Vcounter__Slow.cpp ...)
+
+## PyBind11 + Verilator (Shared Library)
+**Проблема:** Как собрать Verilator-модель не в `.exe`, а в `.so` модуль для Python?
+**Решение:**
+1.  Использовать `pybind11_add_module`.
+2.  Скармливать ему **напрямую** сгенерированные `.cpp` файлы Verilator (`Vcounter.cpp` и т.д.).
+3.  **КРИТИЧНО:** Добавить флаг `-fPIC` при генерации кода Verilator (`--CFLAGS "-fPIC"`). Без этого линковщик откажется собирать разделяемую библиотеку (shared object).
+4.  В Python добавлять путь к `.so` через `sys.path.append`.
