@@ -1,57 +1,94 @@
 #include "dpi_impl.h"
-#include "svdpi.h" // Стандартный хедер SystemVerilog DPI
-#include <cstring>
 #include <iostream>
+#include <map>
+#include <deque>
+#include <vector>
+#include <svdpi.h> 
 
-// Примечание: g_ram определяется в emulator_core.cpp, здесь он только используется (extern).
+// === GLOBAL STATE ===
+static std::map<uint64_t, uint8_t> g_memory;
+static std::deque<uint64_t> g_cmd_queue;
 
-extern "C" {
+// === MEMORY METHODS ===
+void VirtualRAM::write(uint64_t addr, const std::vector<uint64_t>& data) {
+    for (size_t i = 0; i < data.size(); ++i) {
+        uint64_t val = data[i];
+        uint64_t byte_addr = (addr + i) * 8;
+        for (int b = 0; b < 8; ++b) {
+            g_memory[byte_addr + b] = (val >> (b * 8)) & 0xFF;
+        }
+    }
+}
+
+std::vector<uint64_t> VirtualRAM::read(uint64_t addr, size_t size) {
+    std::vector<uint64_t> res(size);
+    for (size_t i = 0; i < size; ++i) {
+        uint64_t val = 0;
+        uint64_t byte_addr = (addr + i) * 8;
+        for (int b = 0; b < 8; ++b) {
+            if (g_memory.count(byte_addr + b)) {
+                val |= ((uint64_t)g_memory[byte_addr + b] << (b * 8));
+            }
+        }
+        res[i] = val;
+    }
+    return res;
+}
+
+// === COMMAND QUEUE METHODS ===
+void CommandQueue::push(uint64_t cmd) {
+    g_cmd_queue.push_back(cmd);
+}
+
+void CommandQueue::clear() {
+    g_cmd_queue.clear();
+}
+
+// === DPI EXPORTS ===
+
+// 1. Burst Read (Using Open Array Handle - CORRECT SIGNATURE)
+extern "C" void dpi_read_burst(long long addr, int len, const svOpenArrayHandle h) {
+    for (int i = 0; i < len; ++i) {
+        uint64_t val = 0;
+        uint64_t byte_addr = (addr + i) * 8;
+        for (int b = 0; b < 8; ++b) {
+             if (g_memory.count(byte_addr + b)) {
+                val |= ((uint64_t)g_memory[byte_addr + b] << (b * 8));
+             }
+        }
+        
+        // Get pointer to Verilog array element
+        svBitVecVal* ptr = (svBitVecVal*)svGetArrElemPtr1(h, i);
+        if (ptr) {
+            ptr[0] = (uint32_t)(val & 0xFFFFFFFF);
+            ptr[1] = (uint32_t)(val >> 32);
+        }
+    }
+}
+
+// 2. Burst Write (Using Open Array Handle - CORRECT SIGNATURE)
+extern "C" void dpi_write_burst(long long addr, int len, const svOpenArrayHandle h) {
+    for (int i = 0; i < len; ++i) {
+        svBitVecVal* ptr = (svBitVecVal*)svGetArrElemPtr1(h, i);
+        if (!ptr) continue;
+        
+        uint64_t val = (uint64_t)ptr[0] | ((uint64_t)ptr[1] << 32);
+        uint64_t byte_addr = (addr + i) * 8;
+        for (int b = 0; b < 8; ++b) {
+            g_memory[byte_addr + b] = (val >> (b * 8)) & 0xFF;
+        }
+    }
+}
+
+// 3. Get Command (Simple pointer, NO Open Array)
+extern "C" svLogic dpi_get_cmd(svBitVecVal* cmd_out) {
+    if (g_cmd_queue.empty()) {
+        return 0; // Logic 0
+    }
+    uint64_t cmd = g_cmd_queue.front();
+    g_cmd_queue.pop_front();
     
-    // DPI Read: Verilog (Client) reads from C++ RAM (Server)
-    // Signature: function void dpi_read_burst(input longint addr, input int len, output bit [63:0] data []);
-    // C++ Mapping for open array: const svOpenArrayHandle
-    void dpi_read_burst(long long addr, int len, const svOpenArrayHandle data) {
-        if (!g_ram) {
-            // Safety check: if RAM not initialized, fill with zeros
-            return; 
-        }
-        
-        // 1. Читаем данные из модели памяти
-        std::vector<uint64_t> vec = g_ram->read(addr, len);
-        
-        // 2. Копируем в Verilog Open Array
-        for (int i = 0; i < len; ++i) {
-            // svGetArrElemPtr1 возвращает указатель на элемент массива.
-            // Элемент bit [63:0] в C++ представляется как svBitVecVal[2] (2 * 32 бита).
-            svBitVecVal* elem = (svBitVecVal*)svGetArrElemPtr1(data, i);
-            
-            if (elem) {
-                uint64_t val = vec[i];
-                elem[0] = (svBitVecVal)(val & 0xFFFFFFFF);         // Low 32 bits
-                elem[1] = (svBitVecVal)((val >> 32) & 0xFFFFFFFF); // High 32 bits
-            }
-        }
-    }
-
-    // DPI Write: Verilog (Client) writes to C++ RAM (Server)
-    // Signature: function void dpi_write_burst(input longint addr, input int len, input bit [63:0] data []);
-    void dpi_write_burst(long long addr, int len, const svOpenArrayHandle data) {
-        if (!g_ram) return;
-        
-        std::vector<uint64_t> vec;
-        vec.reserve(len);
-        
-        for (int i = 0; i < len; ++i) {
-            svBitVecVal* elem = (svBitVecVal*)svGetArrElemPtr1(data, i);
-            if (elem) {
-                // Собираем 64-битное число из двух 32-битных чанков
-                uint64_t val = (uint64_t)elem[0] | ((uint64_t)elem[1] << 32);
-                vec.push_back(val);
-            } else {
-                vec.push_back(0);
-            }
-        }
-        
-        g_ram->write(addr, vec);
-    }
+    cmd_out[0] = (uint32_t)(cmd & 0xFFFFFFFF);
+    cmd_out[1] = (uint32_t)(cmd >> 32);
+    return 1; // Logic 1
 }

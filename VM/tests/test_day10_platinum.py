@@ -20,31 +20,48 @@ def bit_reverse_permutation(arr):
 
 class PlatinumTester:
     def __init__(self):
-        self.emu = logos_emu.Emulator()
         # Calculate Barrett Constant (MU)
         self.mu = (1 << 64) // cfg.Q
         print(f"[INIT] Q={cfg.Q}, MU={self.mu}, N_INV={cfg.N_INV}")
+        self._reset_emu()
+        
+    def _reset_emu(self):
+        # Helper to create fresh emulator instance (clears HALT state)
+        self.emu = logos_emu.Emulator()
+        self.emu.set_context(cfg.Q, self.mu, cfg.N_INV)
         
     def run_cycle(self, name, input_vec):
         print(f"\n[{name}] Size: {len(input_vec)}")
         
+        # 1. Host Pre-processing & Write
         bit_reversed_vec = bit_reverse_permutation(input_vec)
         self.emu.write_ram(0, bit_reversed_vec)
         
+        # 2. RUN NTT (Mode 0) via Command Stream
         t0 = time.time()
-        # Pass ALL params: mode, Q, MU, N_INV
-        self.emu.run_ntt(0, 0, cfg.Q, self.mu, cfg.N_INV) 
+        self.emu.push_ntt_op(0, 0) # Addr=0, Mode=0
+        self.emu.push_halt()
+        self.emu.run()
         t1 = time.time()
         
+        # 3. Read intermediate result and prepare for INTT
         ntt_result = self.emu.read_ram(0, cfg.N)
         ntt_result_rev = bit_reverse_permutation(ntt_result)
+        
+        # RESET EMULATOR (Exit HALT)
+        self._reset_emu()
+        
+        # Write back bit-reversed data for INTT
         self.emu.write_ram(0, ntt_result_rev)
         
+        # 4. RUN INTT (Mode 1)
         t2 = time.time()
-        # INTT Mode
-        self.emu.run_ntt(0, 1, cfg.Q, self.mu, cfg.N_INV)
+        self.emu.push_ntt_op(0, 1) # Addr=0, Mode=1
+        self.emu.push_halt()
+        self.emu.run()
         t3 = time.time()
         
+        # 5. Verify
         final_res = self.emu.read_ram(0, cfg.N)
         
         match = (final_res == input_vec)
@@ -54,6 +71,9 @@ class PlatinumTester:
             exit(1)
             
         print(f"[{name}] Timing: NTT={(t1-t0)*1000:.2f}ms, INTT={(t3-t2)*1000:.2f}ms")
+        
+        # Reset for next cycle
+        self._reset_emu()
 
 if __name__ == "__main__":
     print(f"=== STARTING PLATINUM LOOP (N={cfg.N}) ===\n")
