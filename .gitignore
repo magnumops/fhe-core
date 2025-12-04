@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+env/
+
+# C++ & Build
+*.o
+*.so
+build/
+.cache/
+
+# Verilator
+obj_dir/
+*.vcd
+
+# System & IDE
+.DS_Store
+.vscode/
