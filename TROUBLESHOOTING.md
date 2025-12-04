@@ -144,3 +144,25 @@ assign out = prod[63:0];                     // Явное сужение вых
 **Причина:** В сборке отсутствует реализация функций DPI Open Arrays, необходимая для `verilated` библиотеки.
 **Решение:**
 Всегда добавлять `\${VERILATOR_INCLUDE_DIR}/verilated_dpi.cpp` в список исходных файлов `pybind11_add_module`, если проект использует DPI.
+
+## Verilator API Versioning
+**Проблема:** Ошибки компиляции C++ обертки, связанные с `VerilatedContext` или `Verilated::traceEverOn`.
+**Причина:** Различие версий Verilator. В Ubuntu LTS часто лежат старые версии (4.0xx), не поддерживающие Modern API (4.2xx+).
+**Решение:**
+Использовать Legacy API для инстанцирования моделей:
+\`\`\`cpp
+// Вместо Modern API
+// const std::unique_ptr<VerilatedContext> contextp{new VerilatedContext};
+// const std::unique_ptr<Vmodel> top{new Vmodel{contextp.get()}};
+
+// Использовать Legacy (Raw Pointers)
+Vmodel* top = new Vmodel;
+top->eval();
+delete top;
+\`\`\`
+
+## Verilog Last Cycle Validity
+**Проблема:** Потеря данных на последнем такте работы конвейера.
+**Причина:** Сброс сигнала `valid` в том же такте, когда вычисляются последние данные, но происходит переход состояния в `DONE`.
+**Решение:**
+Не сбрасывать `valid` внутри логики перехода. Позволить ему оставаться `1` на последнем такте. Сбрасывать его только после входа в состояние `DONE`.

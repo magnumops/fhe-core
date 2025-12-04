@@ -58,3 +58,21 @@ pybind11_add_module(ntt_tester
     ${VERILATOR_INCLUDE_DIR}/verilated.cpp
     ${VERILATOR_INCLUDE_DIR}/verilated_dpi.cpp  # <--- FIX: Good practice to add here too
 )
+
+# --- TARGET 3: AGU TESTER (Day 5) ---
+set(RTL_AGU "${CMAKE_SOURCE_DIR}/src/rtl/ntt/ntt_control.v")
+add_custom_command(
+    OUTPUT Vntt_control.cpp Vntt_control.h Vntt_control__Syms.cpp Vntt_control__Syms.h Vntt_control__Slow.cpp
+    COMMAND verilator --cc --exe --Mdir . --CFLAGS "-fPIC" ${RTL_AGU}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    DEPENDS ${RTL_AGU}
+    COMMENT "Verilating ntt_control.v..."
+)
+
+pybind11_add_module(ntt_agu_tester
+    src/ntt_agu_tester.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vntt_control.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vntt_control__Syms.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vntt_control__Slow.cpp
+    ${VERILATOR_INCLUDE_DIR}/verilated.cpp
+)

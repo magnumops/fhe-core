@@ -63,3 +63,13 @@
 | PM-P2-001 | Сгенерированные Verilator хедеры (`Vmodel.h`) автоматически видны компилятору C++ внутри CMake build folder. | Использован стандартный `pybind11_add_module` без добавления build-директории в include. | Build Error: `fatal error: Vcopy_engine.h: No such file`. | CMake не добавляет `CMAKE_CURRENT_BINARY_DIR` в пути поиска хедеров автоматически. Компилятор не знал, где лежат сгенерированные файлы. |
 | PM-P2-002 | Verilog позволяет неявное расширение типов (авто-кастинг 64->65 бит). | Написан код `wire [64:0] s = a + b` (где a,b 64 бита). | Build Error (Lint): `Operator ASSIGNW expects 65 bits`. | Verilator в строгом режиме требует явного приведения типов. Нельзя складывать 64-битные числа и класть в 65 бит без явного паддинга `{1'b0, a}`. |
 | PM-P2-003 | Файл `verilated_dpi.cpp` нужен только модулям, использующим Open Arrays. | Исключен `verilated_dpi.cpp` из цели `ntt_tester`. | Linker Error: `undefined symbol: svGetArrElemPtr1`. | DPI-символы часто являются глобальными или тянутся транзитивно. Если хоть один модуль в проекте (даже соседний) использует DPI Open Arrays, линковщик требует наличия реализации. |
+
+## Сессия: Фаза 2 (NTT Control Logic)
+### Эпизод: День 5 - Разработка AGU (Address Generation Unit)
+
+| ID | Гипотеза / Проблема | Предпринятое Действие | Результат | Анализ Провала (Root Cause) |
+| :--- | :--- | :--- | :--- | :--- |
+| PM-P2-004 | Ubuntu 22.04 содержит современный Verilator, поддерживающий `VerilatedContext`. | Использован код C++ обертки с `new Vntt_control{contextp}`. | Build Error: `VerilatedContext does not name a type`. | Репозитории Ubuntu содержат Verilator v4.038 (или старее), где Modern API еще не внедрен. Необходимо использовать Legacy API (`new Vmodel`). |
+| PM-P2-005 | Для счетчиков цикла NTT размера N=8 достаточно 3-битных регистров (`reg [2:0]`). | Реализована логика `if (k + m < N)`. | Logic Error: Infinite Loop. | Переполнение (Integer Overflow). При `m=4` операция `m << 1` дает 8, что в 3 битах превращается в 0. Условие выхода из цикла никогда не выполняется. Требуется N_LOG+1 бит. |
+| PM-P2-006 | Расширение внутренних регистров до 4 бит решит проблему, выходы можно оставить 3-битными. | `output reg [2:0] addr; ... addr <= k + j;` (где k, j - 4 бита). | Build Error (Strict Lint): `WIDTH mismatch`. | Verilator запрещает неявное усечение. Требуется явная выборка битов: `addr <= sum[2:0]`. |
+| PM-P2-007 | Сигнал `valid` можно сбрасывать в блоке перехода к `DONE`. | `if (finished) begin state <= DONE; valid <= 0; end` | Test Failure: Потерян последний такт данных. | В Verilog присваивание `valid <= 0` в ветке `else` "перебивает" присваивание `valid <= 1` в начале блока. На последнем рабочем такте данные были верны, но флаг валидности был сброшен преждевременно. |
