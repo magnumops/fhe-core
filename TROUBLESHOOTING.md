@@ -57,3 +57,11 @@ add_executable(test_sim ... Vcounter.cpp Vcounter__Syms.cpp Vcounter__Slow.cpp .
 **Проблема:** `ModuleNotFoundError` при запуске тестов внутри Docker.
 **Решение:**
 Явно добавлять путь к папке сборки: `sys.path.append("/app/build")`.
+
+## Verilog DPI Open Arrays
+**Проблема 1:** `undefined symbol: svGetArrElemPtr1` при линковке.
+**Решение:** Если вы используете функции работы с массивами DPI (Open Arrays), необходимо добавить файл `${VERILATOR_INCLUDE_DIR}/verilated_dpi.cpp` в список исходников CMake.
+
+**Проблема 2:** Мусорные данные при чтении массива в C++.
+**Причина:** Использование типа `reg` (4-state logic) в Verilog. Verilator представляет `reg` как сложную структуру, а не как чистое число.
+**Решение:** В интерфейсе DPI всегда использовать тип **`bit`** (2-state logic). Он бинарно совместим с C++ типами (`uint64_t`).

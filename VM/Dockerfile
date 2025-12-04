@@ -5,4 +5,4 @@ RUN pip3 install pybind11
 WORKDIR /app
 COPY . /app
 RUN rm -rf build && mkdir -p build && cd build && cmake .. && make
-RUN python3 tests/test_day6_dpi.py
+RUN python3 tests/test_day7_burst.py

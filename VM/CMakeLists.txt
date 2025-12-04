@@ -15,25 +15,25 @@ find_package(pybind11 REQUIRED)
 set(VERILATOR_INCLUDE_DIR "/usr/share/verilator/include")
 include_directories(${VERILATOR_INCLUDE_DIR} ${VERILATOR_INCLUDE_DIR}/vltstd)
 
-# --- ИЗМЕНЕНИЕ: Теперь собираем mem_test.v ---
-set(VERILOG_SOURCE "${CMAKE_SOURCE_DIR}/src/rtl/mem_test.v")
+set(VERILOG_SOURCE "${CMAKE_SOURCE_DIR}/src/rtl/burst_test.v")
 
 add_custom_command(
-    OUTPUT Vmem_test.cpp Vmem_test.h Vmem_test__Syms.cpp Vmem_test__Syms.h Vmem_test__Slow.cpp
+    OUTPUT Vburst_test.cpp Vburst_test.h Vburst_test__Syms.cpp Vburst_test__Syms.h Vburst_test__Slow.cpp
     COMMAND verilator --cc --exe --Mdir . --CFLAGS "-fPIC" ${VERILOG_SOURCE}
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     DEPENDS ${VERILOG_SOURCE}
-    COMMENT "Verilating mem_test.v..."
+    COMMENT "Verilating burst_test.v..."
 )
 
-# --- ИЗМЕНЕНИЕ: Добавляем dpi_impl.cpp в сборку ---
+# ИСПРАВЛЕНИЕ ЗДЕСЬ: Добавлен verilated_dpi.cpp
 pybind11_add_module(logos_emu
     src/emulator_core.cpp
     src/dpi_impl.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/Vmem_test.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/Vmem_test__Syms.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/Vmem_test__Slow.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vburst_test.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vburst_test__Syms.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Vburst_test__Slow.cpp
     ${VERILATOR_INCLUDE_DIR}/verilated.cpp
+    ${VERILATOR_INCLUDE_DIR}/verilated_dpi.cpp 
 )
 
 target_include_directories(logos_emu PRIVATE 

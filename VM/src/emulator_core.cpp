@@ -1,30 +1,28 @@
 #include <pybind11/pybind11.h>
-#include "Vmem_test.h" // Теперь используем mem_test вместо counter
+#include "Vburst_test.h" // Используем новый модуль
 #include "verilated.h"
 
-// Объявления внешних функций из dpi_impl.cpp
 void init_ram();
 void cleanup_ram();
 void py_write_ram(uint64_t addr, uint64_t val);
 
 namespace py = pybind11;
 
-// Симулятор для теста памяти
-class MemorySim {
+class BurstSim {
 public:
-    Vmem_test* top;
+    Vburst_test* top;
     
-    MemorySim() {
-        init_ram(); // Создаем память при старте
-        top = new Vmem_test;
+    BurstSim() {
+        init_ram();
+        top = new Vburst_test;
         top->clk = 0;
         top->eval();
     }
 
-    ~MemorySim() {
+    ~BurstSim() {
         top->final();
         delete top;
-        cleanup_ram(); // Удаляем память
+        cleanup_ram();
     }
 
     void step() {
@@ -32,25 +30,23 @@ public:
         top->clk = 0; top->eval();
     }
 
-    void set_addr(uint64_t addr) {
-        top->addr = addr;
+    void set_start_addr(uint64_t addr) {
+        top->start_addr = addr;
         top->eval();
     }
 
-    uint64_t get_data() {
-        return top->data;
-    }
+    uint64_t get_data_0() { return top->data_0; }
+    uint64_t get_data_9() { return top->data_9; }
 };
 
 PYBIND11_MODULE(logos_emu, m) {
-    m.doc() = "Logos FHE Emulator with DPI Memory";
+    m.doc() = "Logos FHE Emulator with Burst Mode";
+    m.def("py_write_ram", &py_write_ram);
 
-    // Экспортируем функции управления памятью
-    m.def("py_write_ram", &py_write_ram, "Write to RAM from Python");
-
-    py::class_<MemorySim>(m, "MemorySim")
+    py::class_<BurstSim>(m, "BurstSim")
         .def(py::init<>())
-        .def("step", &MemorySim::step)
-        .def("set_addr", &MemorySim::set_addr)
-        .def("get_data", &MemorySim::get_data);
+        .def("step", &BurstSim::step)
+        .def("set_start_addr", &BurstSim::set_start_addr)
+        .def("get_data_0", &BurstSim::get_data_0)
+        .def("get_data_9", &BurstSim::get_data_9);
 }
