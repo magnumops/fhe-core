@@ -40,4 +40,4 @@ ENV PYTHONPATH="/app/build:/app/src/python:${PYTHONPATH}"
 
 # 8. Run Verification Test (Phase 2 Day 7)
 RUN python3 tests/test_day8_dma.py
-RUN python3 tests/test_incident_repro.py
+RUN python3 tests/test_day10_emerald.py
