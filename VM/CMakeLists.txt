@@ -27,18 +27,17 @@ set(RTL_DEPS
     "${CMAKE_SOURCE_DIR}/src/rtl/ntt/mod_add.v"
     "${CMAKE_SOURCE_DIR}/src/rtl/ntt/mod_sub.v"
     "${CMAKE_SOURCE_DIR}/src/rtl/ntt/mod_mult.v"
+    "${CMAKE_SOURCE_DIR}/src/rtl/ntt/mem_arbiter.v"
 )
 
-# ВАЖНО: Добавлены Vlogos_core__Trace*.cpp в OUTPUT
 add_custom_command(
     OUTPUT Vlogos_core.cpp Vlogos_core.h Vlogos_core__Syms.cpp Vlogos_core__Syms.h Vlogos_core__Slow.cpp Vlogos_core__Trace.cpp Vlogos_core__Trace__Slow.cpp
     COMMAND verilator --cc --exe --Mdir . --CFLAGS "-fPIC" --output-split 0 --output-split-cfuncs 0 --trace -I${CMAKE_SOURCE_DIR}/src/rtl/ntt ${RTL_MAIN}
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     DEPENDS ${RTL_MAIN} ${RTL_DEPS}
-    COMMENT "Verilating logos_core (With Trace)..."
+    COMMENT "Verilating logos_core..."
 )
 
-# ВАЖНО: Добавлены файлы трассировки и verilated_vcd_c.cpp в список исходников
 pybind11_add_module(logos_emu
     src/emulator_core.cpp
     src/dpi_impl.cpp
@@ -54,23 +53,22 @@ pybind11_add_module(logos_emu
 )
 target_link_libraries(logos_emu PRIVATE SEAL::seal)
 
-# --- OLD TARGETS (Minimal support) ---
-# ALU Tester (No Trace needed for now, keep as is or minimal)
-set(RTL_ALU "${CMAKE_SOURCE_DIR}/src/rtl/ntt/vec_alu.v")
+# --- ARBITER TESTER (FIXED) ---
 add_custom_command(
-    OUTPUT Vvec_alu.cpp Vvec_alu.h Vvec_alu__Syms.cpp Vvec_alu__Syms.h Vvec_alu__Slow.cpp
-    COMMAND verilator --cc --exe --Mdir . --CFLAGS "-fPIC" -I${CMAKE_SOURCE_DIR}/src/rtl/ntt ${RTL_ALU}
+    OUTPUT Varbiter_test_shim.cpp Varbiter_test_shim.h Varbiter_test_shim__Syms.cpp Varbiter_test_shim__Slow.cpp Varbiter_test_shim__Dpi.cpp Varbiter_test_shim__Dpi.h
+    COMMAND verilator --cc --exe --Mdir . --CFLAGS "-fPIC" --output-split 0 -I${CMAKE_SOURCE_DIR}/src/rtl/ntt ${CMAKE_SOURCE_DIR}/src/rtl/ntt/arbiter_test_shim.v
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    DEPENDS ${RTL_ALU}
-    COMMENT "Verilating vec_alu..."
-)
-pybind11_add_module(alu_tester
-    src/alu_tester.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/Vvec_alu.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/Vvec_alu__Syms.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/Vvec_alu__Slow.cpp
-    ${VERILATOR_INCLUDE_DIR}/verilated.cpp
+    DEPENDS ${CMAKE_SOURCE_DIR}/src/rtl/ntt/arbiter_test_shim.v ${CMAKE_SOURCE_DIR}/src/rtl/ntt/mem_arbiter.v
+    COMMENT "Verilating Arbiter Shim..."
 )
 
-pybind11_add_module(logos_fhe src/main.cpp src/fhe_impl.cpp)
-target_link_libraries(logos_fhe PRIVATE SEAL::seal)
+pybind11_add_module(arbiter_test
+    src/arbiter_tester_bindings.cpp
+    src/dpi_impl.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Varbiter_test_shim.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Varbiter_test_shim__Syms.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Varbiter_test_shim__Slow.cpp
+    ${CMAKE_CURRENT_BINARY_DIR}/Varbiter_test_shim__Dpi.cpp
+    ${VERILATOR_INCLUDE_DIR}/verilated.cpp
+    ${VERILATOR_INCLUDE_DIR}/verilated_dpi.cpp
+)
