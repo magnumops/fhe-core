@@ -30,3 +30,8 @@
 | **P3-D8-01** | `tests/test_day8_rns_hw.py: No such file` | **Navigation Error.** Попытка создать файл в несуществующей папке (из корня). | `mkdir -p` и `cd` перед записью. |
 | **P3-D8-02** | RNS Mismatch (Data corruption). | **Static ROM.** Аппаратный блок Twiddle Factor был прошит под один $Q$, а использовался для другого. | Замена `twiddle_rom` на `twiddle_ram` и реализация `OPC_LOAD_W`. |
 | **P3-D8-03** | `bash: VM/src/...: No such file`. | **Navigation Error.** Повторная ошибка с путями при обновлении RTL. | Использование относительных путей `src/...`. |
+
+## Episode: Day 9 - BFV ALU
+| ID | Симптом | Root Cause | Fix |
+| :--- | :--- | :--- | :--- |
+| **P3-D9-01** | (No Failure) | — | ALU интегрирован успешно с первого раза. |

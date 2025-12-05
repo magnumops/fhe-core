@@ -37,7 +37,6 @@ public:
         top->clk = 1; top->eval();
         top->rst = 0; top->eval();
         queue->clear();
-        // std::cout << "[CPP] Reset." << std::endl;
     }
 
     void write_ram(uint64_t addr, const std::vector<uint64_t>& data) { ram->write(addr, data); }
@@ -55,9 +54,7 @@ public:
         queue->push(cmd);
     }
     
-    // NEW: Load Weights
     void push_load_w_op(uint64_t host_addr) {
-        // Opcode | Slot (Ignored/0) | Addr
         uint64_t cmd = ((uint64_t)OPC_LOAD_W << 56) | (host_addr & 0xFFFFFFFFFFFF);
         queue->push(cmd);
     }
@@ -70,6 +67,17 @@ public:
     void push_ntt_op(int slot, int mode) {
         uint64_t op = (mode == 1) ? OPC_INTT : OPC_NTT;
         uint64_t cmd = (op << 56) | ((uint64_t)(slot & 0xF) << 52);
+        queue->push(cmd);
+    }
+
+    // NEW: ALU Operation (Target OP Source)
+    void push_alu_op(int op_code, int target_slot, int source_slot) {
+        // [63:56] Opcode
+        // [55:52] Target Slot
+        // [47:46] Source Slot (Encoded in top 2 bits of DMA Addr field)
+        uint64_t cmd = ((uint64_t)op_code << 56) | 
+                       ((uint64_t)(target_slot & 0xF) << 52) | 
+                       ((uint64_t)(source_slot & 0x3) << 46);
         queue->push(cmd);
     }
 
@@ -95,8 +103,9 @@ PYBIND11_MODULE(logos_emu, m) {
         .def("push_command", &Emulator::push_command)
         .def("push_halt", &Emulator::push_halt)
         .def("push_load_op", &Emulator::push_load_op)
-        .def("push_load_w_op", &Emulator::push_load_w_op) // Exposed
+        .def("push_load_w_op", &Emulator::push_load_w_op)
         .def("push_store_op", &Emulator::push_store_op)
         .def("push_ntt_op", &Emulator::push_ntt_op)
+        .def("push_alu_op", &Emulator::push_alu_op) // Exposed
         .def("run", &Emulator::run);
 }

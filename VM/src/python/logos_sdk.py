@@ -2,6 +2,11 @@ import sys
 import logos_emu
 from rns_math import RNSBase, generate_primes, generate_twiddles
 
+# Opcodes
+OPC_ADD  = 0x20
+OPC_SUB  = 0x21
+OPC_MULT = 0x22
+
 class RNSVector:
     def __init__(self, ctx, slots, size):
         self.ctx = ctx
@@ -10,10 +15,7 @@ class RNSVector:
 
     def ntt(self):
         for i, slot_id in enumerate(self.slots):
-            # 1. Context Switch (Params + Twiddles)
             self.ctx.switch_context(i)
-            
-            # 2. Run NTT
             self.ctx.emu.push_ntt_op(slot_id, 0)
             self.ctx.emu.push_halt()
             self.ctx.emu.run()
@@ -23,7 +25,6 @@ class RNSVector:
     def intt(self):
         for i, slot_id in enumerate(self.slots):
             self.ctx.switch_context(i)
-            
             # Hybrid Bit-Reversal
             host_addr = slot_id * self.size
             self.ctx.emu.push_store_op(slot_id, host_addr)
@@ -37,6 +38,32 @@ class RNSVector:
             self.ctx.emu.push_load_op(slot_id, host_addr)
             
             self.ctx.emu.push_ntt_op(slot_id, 1) # Mode 1 = INTT
+            self.ctx.emu.push_halt()
+            self.ctx.emu.run()
+            self.ctx.emu.reset_state()
+        return self
+
+    # NEW: In-Place Addition
+    def add(self, other):
+        if len(self.slots) != len(other.slots): raise ValueError("RNS base mismatch")
+        
+        for i, (tgt, src) in enumerate(zip(self.slots, other.slots)):
+            self.ctx.switch_context(i)
+            # Push ALU Add Command
+            self.ctx.emu.push_alu_op(OPC_ADD, tgt, src)
+            self.ctx.emu.push_halt()
+            self.ctx.emu.run()
+            self.ctx.emu.reset_state()
+        return self
+
+    # NEW: In-Place Multiplication
+    def mul(self, other):
+        if len(self.slots) != len(other.slots): raise ValueError("RNS base mismatch")
+        
+        for i, (tgt, src) in enumerate(zip(self.slots, other.slots)):
+            self.ctx.switch_context(i)
+            # Push ALU Mult Command
+            self.ctx.emu.push_alu_op(OPC_MULT, tgt, src)
             self.ctx.emu.push_halt()
             self.ctx.emu.run()
             self.ctx.emu.reset_state()
@@ -71,28 +98,19 @@ class RNSContext:
         
         primes = generate_primes(N_LOG, num_moduli)
         self.rns = RNSBase(primes)
-        self.moduli_params = [] # (q, mu, n_inv, twiddle_host_addr)
+        self.moduli_params = []
         
-        # Reserve memory for Twiddles
-        # Addr 0x10000000 (safe high offset)
         self.twiddle_base_addr = 0x10000000 
         
         for i, q in enumerate(primes):
             mu = (1 << 64) // q
             n_inv = pow(N, -1, q)
-            
-            # Generate and Upload Twiddles
             twiddles = generate_twiddles(N_LOG, q)
-            w_addr = self.twiddle_base_addr + (i * 2 * N * 8) # 8 bytes per word
-            # Write to Host RAM immediately
-            # Note: write_ram takes word-address (uint64 index), so divide byte offset by 8
             w_word_idx = self.twiddle_base_addr // 8 + (i * 2 * N)
             
             self.emu.write_ram(w_word_idx, twiddles)
-            
             self.moduli_params.append({
-                'q': q, 'mu': mu, 'n_inv': n_inv, 
-                'w_addr': w_word_idx
+                'q': q, 'mu': mu, 'n_inv': n_inv, 'w_addr': w_word_idx
             })
             
         self.slots_available = [True, True, True, True] 
@@ -100,18 +118,12 @@ class RNSContext:
 
     def switch_context(self, mod_idx):
         if self.current_mod_idx == mod_idx: return
-        
         params = self.moduli_params[mod_idx]
-        # 1. Set Registers
         self.emu.set_context(params['q'], params['mu'], params['n_inv'])
-        
-        # 2. Load Twiddles (Host -> Device w_mem)
-        # This is a DMA operation via Command Processor
         self.emu.push_load_w_op(params['w_addr'])
         self.emu.push_halt()
         self.emu.run()
         self.emu.reset_state()
-        
         self.current_mod_idx = mod_idx
 
     def alloc_slot(self):
@@ -139,20 +151,15 @@ class RNSContext:
     def upload(self, bigint_vec):
         if len(bigint_vec) != self.N: raise ValueError("Size mismatch")
         assigned_slots = []
-        
         for k in range(len(self.rns.moduli)):
             slot_id = self.alloc_slot()
             assigned_slots.append(slot_id)
-            
             residue_vec = [x % self.rns.moduli[k] for x in bigint_vec]
             rev_data = self._bit_reverse(residue_vec)
-            
             host_addr = slot_id * self.N
             self.emu.write_ram(host_addr, rev_data)
-            
             self.emu.push_load_op(slot_id, host_addr)
             self.emu.push_halt()
             self.emu.run()
             self.emu.reset_state()
-            
         return RNSVector(self, assigned_slots, self.N)

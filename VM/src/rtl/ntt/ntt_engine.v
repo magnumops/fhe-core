@@ -6,8 +6,8 @@ module ntt_engine #(
     input  wire        rst,
     input  wire        cmd_valid,
     input  wire [7:0]  cmd_opcode,
-    input  wire [3:0]  cmd_slot,
-    input  wire [47:0] cmd_dma_addr,
+    input  wire [3:0]  cmd_slot,      // Target Slot
+    input  wire [47:0] cmd_dma_addr,  // [47:44] Source Slot for ALU
     input  wire [63:0] q,
     input  wire [63:0] mu,
     input  wire [63:0] n_inv,
@@ -19,11 +19,10 @@ module ntt_engine #(
     import "DPI-C" function void dpi_write_burst(input longint addr, input int len, input bit [63:0] data []);
 
     bit [63:0] mem [0:3][0:N-1];
-    
-    // Twiddle RAM (Size 2*N for Forward+Inverse)
     bit [63:0] w_mem [0:8191]; 
 
-    reg [1:0] current_slot;
+    reg [1:0] current_slot; // Target
+    reg [1:0] source_slot;  // Source
     reg       mode_intt;
     reg       agu_start;
     wire      agu_valid, agu_done;
@@ -33,8 +32,9 @@ module ntt_engine #(
     localparam S_DMA_READ  = 1;
     localparam S_DMA_WRITE = 2;
     localparam S_LOAD_W    = 3; 
-    localparam S_CALC      = 4;
+    localparam S_CALC      = 4; // NTT/INTT
     localparam S_SCALE     = 5; 
+    localparam S_ALU       = 6; // NEW: Vector ALU
     
     reg [2:0] state;
     assign dbg_state = state;
@@ -45,10 +45,9 @@ module ntt_engine #(
         .valid(agu_valid), .done(agu_done)
     );
 
-    // Read Twiddles: Base address depends on mode
+    // --- NTT Datapath ---
     wire [N_LOG:0] w_addr = {mode_intt, agu_addr_w};
     wire [63:0] w_data = w_mem[w_addr];
-
     wire [63:0] u_in = mem[current_slot][agu_addr_u];
     wire [63:0] v_in = mem[current_slot][agu_addr_v];
     wire [63:0] u_out, v_out;
@@ -58,6 +57,7 @@ module ntt_engine #(
         .u_out(u_out), .v_out(v_out)
     );
 
+    // --- Scaler (INTT) ---
     reg [N_LOG:0] scale_idx;
     wire [63:0] scale_in = mem[current_slot][scale_idx[N_LOG-1:0]];
     wire [63:0] scale_out;
@@ -65,11 +65,27 @@ module ntt_engine #(
         .a(scale_in), .b(n_inv), .q(q), .mu(mu), .out(scale_out)
     );
 
+    // --- Vector ALU Datapath ---
+    reg [N_LOG:0] alu_idx;
+    reg [2:0]     alu_opcode_reg; // 0=ADD, 1=SUB, 2=MULT
+    wire [63:0]   alu_op_a = mem[current_slot][alu_idx[N_LOG-1:0]];
+    wire [63:0]   alu_op_b = mem[source_slot][alu_idx[N_LOG-1:0]];
+    wire [63:0]   alu_res;
+    
+    vec_alu u_vec_alu (
+        .opcode(alu_opcode_reg),
+        .op_a(alu_op_a), .op_b(alu_op_b), .q(q), .mu(mu),
+        .res_out(alu_res)
+    );
+
     localparam [7:0] OPC_LOAD   = 8'h02;
     localparam [7:0] OPC_STORE  = 8'h03;
     localparam [7:0] OPC_LOAD_W = 8'h04;
     localparam [7:0] OPC_NTT    = 8'h10;
     localparam [7:0] OPC_INTT   = 8'h11;
+    localparam [7:0] OPC_ADD    = 8'h20;
+    localparam [7:0] OPC_SUB    = 8'h21;
+    localparam [7:0] OPC_MULT   = 8'h22;
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
@@ -77,6 +93,7 @@ module ntt_engine #(
             ready <= 1;
             agu_start <= 0;
             current_slot <= 0;
+            alu_idx <= 0;
         end else begin
             case (state)
                 S_IDLE: begin
@@ -84,6 +101,8 @@ module ntt_engine #(
                     if (cmd_valid) begin
                         ready <= 0;
                         current_slot <= cmd_slot[1:0];
+                        // Extract Source Slot from upper bits of DMA Addr (hacky but fits ISA)
+                        source_slot  <= cmd_dma_addr[47:46]; 
                         
                         case (cmd_opcode)
                             OPC_LOAD:   state <= S_DMA_READ;
@@ -98,6 +117,21 @@ module ntt_engine #(
                                 mode_intt <= 1;
                                 state <= S_CALC;
                                 agu_start <= 1;
+                            end
+                            OPC_ADD: begin
+                                alu_opcode_reg <= 3'b000;
+                                state <= S_ALU;
+                                alu_idx <= 0;
+                            end
+                            OPC_SUB: begin
+                                alu_opcode_reg <= 3'b001;
+                                state <= S_ALU;
+                                alu_idx <= 0;
+                            end
+                            OPC_MULT: begin
+                                alu_opcode_reg <= 3'b010;
+                                state <= S_ALU;
+                                alu_idx <= 0;
                             end
                             default: state <= S_IDLE;
                         endcase
@@ -115,7 +149,6 @@ module ntt_engine #(
                 end
                 
                 S_LOAD_W: begin
-                    // Load 2*N words (Forward + Inverse)
                     dpi_read_burst({16'b0, cmd_dma_addr}, 2*N, w_mem);
                     state <= S_IDLE;
                 end
@@ -140,6 +173,16 @@ module ntt_engine #(
                     if (scale_idx < N) begin
                         mem[current_slot][scale_idx[N_LOG-1:0]] <= scale_out;
                         scale_idx <= scale_idx + 1;
+                    end else begin
+                        state <= S_IDLE;
+                    end
+                end
+                
+                S_ALU: begin
+                    // Sequential ALU processing: 1 word per cycle
+                    if (alu_idx < N) begin
+                        mem[current_slot][alu_idx[N_LOG-1:0]] <= alu_res;
+                        alu_idx <= alu_idx + 1;
                     end else begin
                         state <= S_IDLE;
                     end
