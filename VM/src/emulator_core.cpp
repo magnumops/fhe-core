@@ -10,7 +10,6 @@
 
 namespace py = pybind11;
 
-// Global simulation time
 vluint64_t main_time = 0;
 double sc_time_stamp() { return main_time; }
 
@@ -23,6 +22,7 @@ class Emulator {
     CommandQueue* queue;
     VerilatedVcdC* tfp;
     bool trace_enabled;
+    int current_core_id; // 0 or 1
 
 public:
     Emulator() {
@@ -31,12 +31,11 @@ public:
         queue = new CommandQueue();
         g_ram = ram;
         g_queue = queue;
-
         top = new Vlogos_core;
         tfp = nullptr;
         trace_enabled = false;
+        current_core_id = 0; // Default Core 0
 
-        // Reset
         top->rst = 1; top->clk = 0;
         top->ctx_q = 0; top->ctx_mu = 0; top->ctx_n_inv = 0;
         eval_step();
@@ -48,7 +47,6 @@ public:
         delete top; delete ram; delete queue;
     }
 
-    // Helper to tick clock
     void eval_step() {
         top->eval();
         if (trace_enabled) tfp->dump(main_time);
@@ -66,11 +64,7 @@ public:
 
     void stop_trace() {
         if (!trace_enabled) return;
-        std::cout << "[INFO] Stopping VCD Trace." << std::endl;
-        tfp->close();
-        delete tfp;
-        tfp = nullptr;
-        trace_enabled = false;
+        tfp->close(); delete tfp; tfp = nullptr; trace_enabled = false;
     }
 
     void reset_state() {
@@ -83,38 +77,49 @@ public:
 
     void write_ram(uint64_t addr, const std::vector<uint64_t>& data) { ram->write(addr, data); }
     std::vector<uint64_t> read_ram(uint64_t addr, size_t size) { return ram->read(addr, size); }
-    void set_context(uint64_t q, uint64_t mu, uint64_t n_inv) { 
-        top->ctx_q = q; top->ctx_mu = mu; top->ctx_n_inv = n_inv; 
+    void set_context(uint64_t q, uint64_t mu, uint64_t n_inv) { top->ctx_q = q; top->ctx_mu = mu; top->ctx_n_inv = n_inv; }
+
+    // --- Core Selection ---
+    void set_target_core(int core_id) {
+        if (core_id < 0 || core_id > 1) {
+            std::cerr << "[WARN] Invalid Core ID: " << core_id << ". Using 0." << std::endl;
+            current_core_id = 0;
+        } else {
+            current_core_id = core_id;
+        }
     }
 
-    // --- ISA COMMAND GENERATION (With uint64_t casts) ---
-    void push_command(uint64_t cmd) { queue->push(cmd); }
-    void push_halt() { queue->push((uint64_t)OPC_HALT << 56); }
+    // Helper to embed Core ID into Bit 48
+    uint64_t embed_core(uint64_t cmd) {
+        return cmd | ((uint64_t)(current_core_id & 1) << 48);
+    }
+
+    void push_command(uint64_t cmd) { queue->push(embed_core(cmd)); }
+    void push_halt() { queue->push(embed_core((uint64_t)OPC_HALT << 56)); }
     
     void push_load_op(int slot, uint64_t host_addr) { 
-        queue->push(((uint64_t)OPC_LOAD << 56) | ((uint64_t)(slot & 0xF) << 52) | (host_addr & 0xFFFFFFFFFFFF)); 
+        queue->push(embed_core(((uint64_t)OPC_LOAD << 56) | ((uint64_t)(slot & 0xF) << 52) | (host_addr & 0xFFFFFFFFFFFF))); 
     }
     
     void push_load_w_op(uint64_t host_addr) { 
-        queue->push(((uint64_t)OPC_LOAD_W << 56) | (host_addr & 0xFFFFFFFFFFFF)); 
+        queue->push(embed_core(((uint64_t)OPC_LOAD_W << 56) | (host_addr & 0xFFFFFFFFFFFF))); 
     }
     
     void push_store_op(int slot, uint64_t host_addr) { 
-        queue->push(((uint64_t)OPC_STORE << 56) | ((uint64_t)(slot & 0xF) << 52) | (host_addr & 0xFFFFFFFFFFFF)); 
+        queue->push(embed_core(((uint64_t)OPC_STORE << 56) | ((uint64_t)(slot & 0xF) << 52) | (host_addr & 0xFFFFFFFFFFFF))); 
     }
     
     void push_ntt_op(int slot, int mode) { 
         uint64_t op = (mode == 1) ? OPC_INTT : OPC_NTT;
-        queue->push(((uint64_t)op << 56) | ((uint64_t)(slot & 0xF) << 52)); 
+        queue->push(embed_core(((uint64_t)op << 56) | ((uint64_t)(slot & 0xF) << 52))); 
     }
     
     void push_alu_op(int op_code, int target_slot, int source_slot) {
-        queue->push(((uint64_t)op_code << 56) | ((uint64_t)(target_slot & 0xF) << 52) | ((uint64_t)(source_slot & 0x3) << 46));
+        queue->push(embed_core(((uint64_t)op_code << 56) | ((uint64_t)(target_slot & 0xF) << 52) | ((uint64_t)(source_slot & 0x3) << 46)));
     }
 
-    // NEW: HPC Read Command
     void push_read_perf_op(uint64_t host_addr) {
-        queue->push(((uint64_t)OPC_READ_PERF << 56) | (host_addr & 0xFFFFFFFFFFFF));
+        queue->push(embed_core(((uint64_t)OPC_READ_PERF << 56) | (host_addr & 0xFFFFFFFFFFFF)));
     }
 
     void run() {
@@ -135,6 +140,7 @@ PYBIND11_MODULE(logos_emu, m) {
         .def("write_ram", &Emulator::write_ram)
         .def("read_ram", &Emulator::read_ram)
         .def("set_context", &Emulator::set_context)
+        .def("set_target_core", &Emulator::set_target_core) // EXPORTED
         .def("push_command", &Emulator::push_command)
         .def("push_halt", &Emulator::push_halt)
         .def("push_load_op", &Emulator::push_load_op)
@@ -142,7 +148,7 @@ PYBIND11_MODULE(logos_emu, m) {
         .def("push_store_op", &Emulator::push_store_op)
         .def("push_ntt_op", &Emulator::push_ntt_op)
         .def("push_alu_op", &Emulator::push_alu_op)
-        .def("push_read_perf_op", &Emulator::push_read_perf_op) // Register NEW method
+        .def("push_read_perf_op", &Emulator::push_read_perf_op)
         .def("run", &Emulator::run)
         .def("start_trace", &Emulator::start_trace)
         .def("stop_trace", &Emulator::stop_trace);
