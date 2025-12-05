@@ -1,0 +1,18 @@
+#!/bin/bash
+echo "=== LOGOS TRACE MANAGER ==="
+echo "Found Trace Files (.vcd):"
+# Ищем файлы в текущей директории
+found_files=$(find . -maxdepth 1 -name "*.vcd")
+
+if [ -z "$found_files" ]; then
+    echo "   (No trace files found)"
+else
+    ls -lh *.vcd
+fi
+
+echo ""
+echo "=== HOW TO VIEW ==="
+echo "1. Download trace to your local machine:"
+echo "   scp root@$(hostname -I | awk '{print $1}'):$(pwd)/ERROR_<name>.vcd ."
+echo "2. Open in GTKWave on your PC."
+echo "3. To clean up: rm *.vcd"
