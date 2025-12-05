@@ -43,3 +43,19 @@
 | **P3-D10-02** | `RuntimeError: RNS index out of bounds`. | **SEAL Special Prime.** SEAL использует последний модуль как P, уменьшая K на 1. HW ожидало K модулей данных. | Передача в SEAL $K+1$ простых чисел. |
 | **P3-D10-03** | `RuntimeError: Out of Device Memory`. | **Slot Leak.** Алгоритм теста пытался держать в памяти 3 вектора (по 2 слота каждый = 6 слотов) при лимите 4. | Оптимизация: выгрузка промежуточных итогов (Host Sum). |
 | **P3-D10-04** | Decryption Mismatch (`12391 != 6`). | **BFV Scaling.** Отсутствие шага Scaling/Rounding после умножения. $Dec(C^2) \approx \Delta M^2$. | Pivot теста на проверку чистой полиномиальной арифметики (без шифрования), что доказывает корректность HW ядра. |
+
+# Session: Phase 4 (Observability)
+
+## Episode: Day 1 - Linker Hell
+| ID | Гипотеза / Проблема | Результат | Root Cause |
+| :--- | :--- | :--- | :--- |
+| **PM-P4-01** | Adding `--trace` to Verilator. | `undefined symbol: trace` | **Build System Blindness.** Verilator генерирует новые файлы (`*_Trace.cpp`), которые CMake не видит автоматически. Их нужно добавлять в `add_library` вручную. |
+
+## Episode: Day 4 - HPC & DPI
+| ID | Гипотеза / Проблема | Результат | Root Cause |
+| :--- | :--- | :--- | :--- |
+| **PM-P4-02** | Moving classes to `.h` to simplify. | `redefinition of class` | **Header Guard Failure.** Реализация методов осталась в `.cpp` и была добавлена в `.h`. Компилятор увидел дубликаты. |
+| **PM-P4-03** | `sed` patching of C++ code. | Syntax Error (Nested functions). | **Fragile Tooling.** Использование `sed` для вставки кода в C++ ненадежно. Нужно перезаписывать файлы целиком. |
+| **PM-P4-04** | Reading counters via DPI. | `Total cycles: 0` | **Unsafe Casting.** Приведение `uint32_t*` (svBitVecVal) к `uint64_t*` на границе языков небезопасно. Нужно собирать 64-битное число вручную из двух половин. |
+| **PM-P4-05** | Resetting state. | Counters reset to 0. | **Logic Flaw.** Сигнал `rst` сбрасывал не только FSM, но и счетчики производительности. Вынесли счетчики в отдельный `always @(posedge clk)` блок без сброса. |
+| **PM-P4-06** | Updating SDK. | `ImportError: RNSContext` | **Destructive Write.** Команда `cat > file` полностью стерла старый код SDK, оставив только новый. Всегда нужно делать `cat >>` или объединять контент. |
