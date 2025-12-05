@@ -263,3 +263,11 @@ Docker & Python Caching
 Решение:
 Добавить __pycache__ и *.pyc в .dockerignore.
 Удалять __pycache__ перед сборкой.
+
+## Verilator & DPI Headers
+**Проблема:** `error: 'svOpenArrayHandle' does not name a type`.
+**Решение:** В любом C++ файле, использующем типы DPI, обязан быть `#include "svdpi.h"`.
+
+## PyBind11 Arguments
+**Проблема:** `TypeError: incompatible function arguments` при вызове с именованными аргументами (`func(a=1)`).
+**Решение:** По умолчанию PyBind экспортирует функции только с позиционными аргументами. Либо использовать `func(1)`, либо явно прописывать `py::arg("a")` в C++ дефиниции.

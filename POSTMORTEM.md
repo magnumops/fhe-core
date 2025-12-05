@@ -118,3 +118,16 @@
 | **PM-P3-10** | Runtime. | `Logos Core Timeout`. | **Simulation Freeze.** Эмулятор застревает. Причина выясняется (предположительно отсутствие `ready` сигнала или deadlock). |
 | **PM-P3-11** | Instrumentation (Debug). | `syntax error, unexpected always`. | **Verilog Syntax.** Попытка вложить `always` блок внутрь другого `always` через `sed`. |
 | **PM-P3-12** | Linker (Debug). | `undefined symbol: sc_time_stamp`. | **Missing Hook.** Использование `$time` в Verilog требует реализации `double sc_time_stamp()` в C++. |
+
+## Фаза 5: Дни 6-8 (Dual Core & Arbitration)
+**Инцидент 1:** Runtime Error: Logos Core Timeout (Day 6).
+**Причина:** Некорректный сброс в C++ драйвере. Мы устанавливали `rst=1`, но не подавали тактовый сигнал (`clk`). Синхронная логика Verilog не видела сброса.
+**Решение:** Внедрен метод `tick()` в конструкторе `LogosSim`, обеспечивающий прохождение тактов во время сброса.
+
+**Инцидент 2:** Linker Error: Multiple definition (Day 6).
+**Причина:** Конфликт между заглушками (stubs) в `emulator_core.cpp` и реальной реализацией в `dpi_impl.cpp`.
+**Решение:** Удаление заглушек из основного C++ файла при линковке полного проекта.
+
+**Инцидент 3:** CMake Syntax Error (Day 7).
+**Причина:** Использование `sed` для редактирования списков файлов сломало синтаксис `${VAR}`.
+**Решение:** Полная перезапись `CMakeLists.txt` вместо патчинга.
