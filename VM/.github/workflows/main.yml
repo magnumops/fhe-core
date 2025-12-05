@@ -1,0 +1,37 @@
+name: Logos FHE Emulator CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    # Мы используем Docker, чтобы не настраивать окружение с нуля
+    - name: Build Docker Image
+      run: |
+        cd VM
+        docker build -t logos-emu .
+        
+    - name: Run Unit Tests (Day 1-3)
+      run: |
+        cd VM
+        docker run --rm logos-emu python3 tests/test_trace_canary.py
+        docker run --rm logos-emu python3 tests/test_day2_smart_trace.py
+        
+    - name: Run Performance Tests (Day 4-6)
+      run: |
+        cd VM
+        docker run --rm logos-emu python3 tests/test_day4_perf.py
+        docker run --rm logos-emu python3 benchmarks/run_microbench.py
+        
+    - name: Run Stress Tests (Day 7)
+      run: |
+        cd VM
+        docker run --rm logos-emu python3 tests/test_day7_fuzz.py
