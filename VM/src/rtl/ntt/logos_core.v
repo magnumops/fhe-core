@@ -8,7 +8,8 @@ module logos_core #(
     input  wire [63:0] ctx_mu,
     input  wire [63:0] ctx_n_inv,
     output wire        halted,
-    output wire [2:0]  dbg_engine_state,
+    // Debug: Concatenated states [Core1:3b | Core0:3b]
+    output wire [5:0]  dbg_engine_state,
     output wire [1:0]  dbg_cpu_state
 );
 
@@ -16,7 +17,8 @@ module logos_core #(
     wire [7:0]  cmd_opcode;
     wire [3:0]  cmd_slot;
     wire [47:0] cmd_dma_addr;
-    wire        engine_ready;
+    wire        engine_ready_0;
+    // engine_ready_1 is ignored for now since it doesn't receive commands
 
     command_processor u_cpu (
         .clk(clk), .rst(rst),
@@ -24,29 +26,29 @@ module logos_core #(
         .cmd_opcode(cmd_opcode),
         .cmd_slot(cmd_slot),
         .cmd_dma_addr(cmd_dma_addr),
-        .engine_ready(engine_ready),
+        .engine_ready(engine_ready_0), // Only listen to Core 0 for now
         .halted(halted),
         .dbg_state(dbg_cpu_state)
     );
 
-    // --- ARBITER & SIGNALS ---
     localparam MAX_DATA = 8192;
     
-    // Core 0 Signals
+    // Core 0 Interface
     wire        c0_req, c0_rw, c0_ack;
     wire [47:0] c0_addr;
     wire [31:0] c0_len;
     bit [63:0]  c0_wdata [0:MAX_DATA-1];
     bit [63:0]  c0_rdata [0:MAX_DATA-1];
+    wire [2:0]  state_0;
 
-    // Core 1 Signals (Grounded for now)
-    wire        c1_req = 0;
-    wire        c1_rw = 0;
-    wire [47:0] c1_addr = 0;
-    wire [31:0] c1_len = 0;
+    // Core 1 Interface
+    wire        c1_req, c1_rw, c1_ack;
+    wire [47:0] c1_addr;
+    wire [31:0] c1_len;
     bit [63:0]  c1_wdata [0:MAX_DATA-1];
-    wire [63:0] c1_rdata [0:MAX_DATA-1]; // Unused output
-    wire        c1_ack;
+    bit [63:0]  c1_rdata [0:MAX_DATA-1];
+    wire [2:0]  state_1;
+    wire        ready_1;
 
     mem_arbiter #(.N(N), .MAX_DATA(MAX_DATA)) u_arb (
         .clk(clk), .rst(rst),
@@ -58,17 +60,17 @@ module logos_core #(
         .wdata_1(c1_wdata), .rdata_1(c1_rdata), .ack_1(c1_ack)
     );
 
-    ntt_engine #(.N_LOG(N_LOG), .N(N)) u_engine (
+    // CORE 0 (Master for Day 4)
+    ntt_engine #(.N_LOG(N_LOG), .N(N), .CORE_ID(0)) u_engine_0 (
         .clk(clk), .rst(rst),
-        .cmd_valid(cmd_valid),
+        .cmd_valid(cmd_valid), // Receives commands
         .cmd_opcode(cmd_opcode),
         .cmd_slot(cmd_slot),
         .cmd_dma_addr(cmd_dma_addr),
-        .ready(engine_ready),
+        .ready(engine_ready_0),
         .q(ctx_q), .mu(ctx_mu), .n_inv(ctx_n_inv),
-        .dbg_state(dbg_engine_state),
+        .dbg_state(state_0),
         
-        // Connect to Arbiter
         .arb_req(c0_req),
         .arb_rw(c0_rw),
         .arb_addr(c0_addr),
@@ -77,5 +79,27 @@ module logos_core #(
         .arb_rdata(c0_rdata),
         .arb_ack(c0_ack)
     );
+
+    // CORE 1 (Idle for Day 4)
+    ntt_engine #(.N_LOG(N_LOG), .N(N), .CORE_ID(1)) u_engine_1 (
+        .clk(clk), .rst(rst),
+        .cmd_valid(1'b0), // Disabled
+        .cmd_opcode(8'b0),
+        .cmd_slot(4'b0),
+        .cmd_dma_addr(48'b0),
+        .ready(ready_1),
+        .q(ctx_q), .mu(ctx_mu), .n_inv(ctx_n_inv),
+        .dbg_state(state_1),
+        
+        .arb_req(c1_req),
+        .arb_rw(c1_rw),
+        .arb_addr(c1_addr),
+        .arb_len(c1_len),
+        .arb_wdata(c1_wdata),
+        .arb_rdata(c1_rdata),
+        .arb_ack(c1_ack)
+    );
+
+    assign dbg_engine_state = {state_1, state_0};
 
 endmodule

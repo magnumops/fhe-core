@@ -1,6 +1,7 @@
 module ntt_engine #(
     parameter N_LOG = 12,
-    parameter N     = 4096
+    parameter N     = 4096,
+    parameter CORE_ID = 0
 )(
     input  wire        clk,
     input  wire        rst,
@@ -13,12 +14,11 @@ module ntt_engine #(
     input  wire [63:0] mu,
     input  wire [63:0] n_inv,
     
-    // Arbiter Interface
     output reg         arb_req,
     output reg         arb_rw,       
     output reg [47:0]  arb_addr,
     output reg [31:0]  arb_len,
-    output bit [63:0]  arb_wdata [0:2*N-1],
+    output bit [63:0]  arb_wdata [0:2*N-1], // Driven sequentially
     input  bit [63:0]  arb_rdata [0:2*N-1],
     input  wire        arb_ack,
 
@@ -35,7 +35,6 @@ module ntt_engine #(
     wire      agu_valid, agu_done;
     wire [N_LOG-1:0] agu_addr_u, agu_addr_v, agu_addr_w;
 
-    // Perf Counters
     reg [63:0] perf_total_cycles = 0;
     reg [63:0] perf_active_cycles = 0;
     reg [63:0] perf_ntt_ops = 0;
@@ -56,7 +55,6 @@ module ntt_engine #(
     reg [2:0] state;
     assign dbg_state = state;
 
-    // Opcodes
     localparam [7:0] OPC_LOAD   = 8'h02;
     localparam [7:0] OPC_STORE  = 8'h03;
     localparam [7:0] OPC_LOAD_W = 8'h04;
@@ -101,7 +99,7 @@ module ntt_engine #(
         .op_a(alu_op_a), .op_b(alu_op_b), .q(q), .mu(mu), .res_out(alu_res)
     );
 
-    // --- PERF COUNTERS INCREMENT ---
+    // Perf Counters Logic (Persistent)
     always @(posedge clk) begin
         perf_total_cycles <= perf_total_cycles + 1;
         if (state != S_IDLE) perf_active_cycles <= perf_active_cycles + 1;
@@ -109,7 +107,7 @@ module ntt_engine #(
         if (inc_alu_pulse) perf_alu_ops <= perf_alu_ops + 1;
     end
 
-    // --- MAIN FSM ---
+    // Main FSM
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             state <= S_IDLE;
@@ -128,6 +126,7 @@ module ntt_engine #(
                 S_IDLE: begin
                     ready <= 1;
                     if (cmd_valid) begin
+                        $display("[CORE %0d] CMD: %h", CORE_ID, cmd_opcode);
                         ready <= 0;
                         current_slot <= cmd_slot[1:0];
                         source_slot  <= cmd_dma_addr[47:46];
@@ -145,7 +144,7 @@ module ntt_engine #(
                                 arb_addr <= cmd_dma_addr;
                                 arb_len <= N;
                                 arb_rw <= 1; 
-                                // Prepare data for store (Use loop for blocking assignment)
+                                // Blocking loop for array copy in FSM
                                 for(int k=0; k<N; k++) arb_wdata[k] = mem[cmd_slot[1:0]][k];
                                 arb_req <= 1;
                             end
@@ -161,12 +160,13 @@ module ntt_engine #(
                                 arb_addr <= cmd_dma_addr;
                                 arb_len <= 4;
                                 arb_rw <= 1; 
-                                // SYNCHRONOUS LATCHING OF COUNTERS
+                                // SYNCHRONOUS DRIVE (FIXED)
                                 arb_wdata[0] = perf_total_cycles;
                                 arb_wdata[1] = perf_active_cycles;
                                 arb_wdata[2] = perf_ntt_ops;
                                 arb_wdata[3] = perf_alu_ops;
                                 arb_req <= 1;
+                                $display("[CORE %0d] DUMP: Cyc=%d", CORE_ID, perf_total_cycles);
                             end
                             OPC_NTT: begin
                                 mode_intt <= 0;
