@@ -23,3 +23,10 @@
 | **P3-15** | Day 7 | Integration Test. | **Mismatch** (Cycles: 0 in INTT). | **Sticky Halt:** Эмулятор остался в состоянии HALT после первой операции. Требуется сброс FSM. |
 | **P3-16** | Day 7 | Fix Sticky Halt. | `UnboundLocalError: 'rev'`. | **Copy-Paste Error:** Синтаксическая ошибка в Python коде (`_bit_reverse`), пропущена инициализация переменных. |
 | **P3-17** | Day 7 | Final Verify. | **Mismatch** (Data differs). | **Verification Logic Error:** Тест выполняет лишнюю перестановку битов после скачивания результата, хотя аппаратный INTT (DIT) выдает Natural order (согласно тестам Фазы 2). |
+
+## Episode: Day 8 - RNS & Dynamic Twiddles
+| ID | Симптом | Root Cause | Fix |
+| :--- | :--- | :--- | :--- |
+| **P3-D8-01** | `tests/test_day8_rns_hw.py: No such file` | **Navigation Error.** Попытка создать файл в несуществующей папке (из корня). | `mkdir -p` и `cd` перед записью. |
+| **P3-D8-02** | RNS Mismatch (Data corruption). | **Static ROM.** Аппаратный блок Twiddle Factor был прошит под один $Q$, а использовался для другого. | Замена `twiddle_rom` на `twiddle_ram` и реализация `OPC_LOAD_W`. |
+| **P3-D8-03** | `bash: VM/src/...: No such file`. | **Navigation Error.** Повторная ошибка с путями при обновлении RTL. | Использование относительных путей `src/...`. |

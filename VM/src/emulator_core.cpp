@@ -23,15 +23,22 @@ public:
         queue = new CommandQueue();
         g_ram = ram;
         g_queue = queue;
-        
         top = new Vlogos_core;
         top->rst = 1; top->clk = 0; 
         top->ctx_q = 0; top->ctx_mu = 0; top->ctx_n_inv = 0;
-        
         top->eval();
         top->rst = 0; top->eval();
     }
     ~Emulator() { delete top; delete ram; delete queue; }
+
+    void reset_state() {
+        top->rst = 1; top->eval();
+        top->clk = 0; top->eval();
+        top->clk = 1; top->eval();
+        top->rst = 0; top->eval();
+        queue->clear();
+        // std::cout << "[CPP] Reset." << std::endl;
+    }
 
     void write_ram(uint64_t addr, const std::vector<uint64_t>& data) { ram->write(addr, data); }
     std::vector<uint64_t> read_ram(uint64_t addr, size_t size) { return ram->read(addr, size); }
@@ -47,6 +54,13 @@ public:
         uint64_t cmd = ((uint64_t)OPC_LOAD << 56) | ((uint64_t)(slot & 0xF) << 52) | (host_addr & 0xFFFFFFFFFFFF);
         queue->push(cmd);
     }
+    
+    // NEW: Load Weights
+    void push_load_w_op(uint64_t host_addr) {
+        // Opcode | Slot (Ignored/0) | Addr
+        uint64_t cmd = ((uint64_t)OPC_LOAD_W << 56) | (host_addr & 0xFFFFFFFFFFFF);
+        queue->push(cmd);
+    }
 
     void push_store_op(int slot, uint64_t host_addr) {
         uint64_t cmd = ((uint64_t)OPC_STORE << 56) | ((uint64_t)(slot & 0xF) << 52) | (host_addr & 0xFFFFFFFFFFFF);
@@ -60,43 +74,28 @@ public:
     }
 
     void run() {
-        int timeout = 500000;
+        int timeout = 1000000;
         int cycle = 0;
-        std::cout << "[CPP] Starting RUN loop..." << std::endl;
-        
         while (!top->halted && timeout > 0) {
             top->clk = 0; top->eval();
             top->clk = 1; top->eval();
-            
-            // Heartbeat every 10k cycles
-            if (cycle % 10000 == 0) {
-                std::cout << "[TRACE] Cycle " << cycle 
-                          << " | CPU State: " << (int)top->dbg_cpu_state
-                          << " | Engine State: " << (int)top->dbg_engine_state 
-                          << " | Halted: " << (int)top->halted << std::endl;
-            }
-            
-            timeout--;
-            cycle++;
+            timeout--; cycle++;
         }
-        if (timeout == 0) {
-            std::cout << "[ERROR] Timeout! Final State - CPU: " << (int)top->dbg_cpu_state 
-                      << " Engine: " << (int)top->dbg_engine_state << std::endl;
-            throw std::runtime_error("Logos Core Timeout");
-        }
-        std::cout << "[CPP] Run finished. Cycles: " << cycle << std::endl;
+        if (timeout == 0) throw std::runtime_error("Logos Core Timeout");
     }
 };
 
 PYBIND11_MODULE(logos_emu, m) {
     py::class_<Emulator>(m, "Emulator")
         .def(py::init<>())
+        .def("reset_state", &Emulator::reset_state)
         .def("write_ram", &Emulator::write_ram)
         .def("read_ram", &Emulator::read_ram)
         .def("set_context", &Emulator::set_context)
         .def("push_command", &Emulator::push_command)
         .def("push_halt", &Emulator::push_halt)
         .def("push_load_op", &Emulator::push_load_op)
+        .def("push_load_w_op", &Emulator::push_load_w_op) // Exposed
         .def("push_store_op", &Emulator::push_store_op)
         .def("push_ntt_op", &Emulator::push_ntt_op)
         .def("run", &Emulator::run);

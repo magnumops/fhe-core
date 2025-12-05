@@ -12,7 +12,6 @@ module ntt_engine #(
     input  wire [63:0] mu,
     input  wire [63:0] n_inv,
     output reg         ready,
-    // DEBUG PORT
     output wire [2:0]  dbg_state
 );
 
@@ -20,6 +19,9 @@ module ntt_engine #(
     import "DPI-C" function void dpi_write_burst(input longint addr, input int len, input bit [63:0] data []);
 
     bit [63:0] mem [0:3][0:N-1];
+    
+    // Twiddle RAM (Size 2*N for Forward+Inverse)
+    bit [63:0] w_mem [0:8191]; 
 
     reg [1:0] current_slot;
     reg       mode_intt;
@@ -30,8 +32,9 @@ module ntt_engine #(
     localparam S_IDLE      = 0;
     localparam S_DMA_READ  = 1;
     localparam S_DMA_WRITE = 2;
-    localparam S_CALC      = 3;
-    localparam S_SCALE     = 4; 
+    localparam S_LOAD_W    = 3; 
+    localparam S_CALC      = 4;
+    localparam S_SCALE     = 5; 
     
     reg [2:0] state;
     assign dbg_state = state;
@@ -42,8 +45,9 @@ module ntt_engine #(
         .valid(agu_valid), .done(agu_done)
     );
 
-    wire [63:0] w_data;
-    twiddle_rom u_rom (.addr({mode_intt, agu_addr_w}), .data(w_data));
+    // Read Twiddles: Base address depends on mode
+    wire [N_LOG:0] w_addr = {mode_intt, agu_addr_w};
+    wire [63:0] w_data = w_mem[w_addr];
 
     wire [63:0] u_in = mem[current_slot][agu_addr_u];
     wire [63:0] v_in = mem[current_slot][agu_addr_v];
@@ -61,10 +65,11 @@ module ntt_engine #(
         .a(scale_in), .b(n_inv), .q(q), .mu(mu), .out(scale_out)
     );
 
-    localparam [7:0] OPC_LOAD  = 8'h02;
-    localparam [7:0] OPC_STORE = 8'h03;
-    localparam [7:0] OPC_NTT   = 8'h10;
-    localparam [7:0] OPC_INTT  = 8'h11;
+    localparam [7:0] OPC_LOAD   = 8'h02;
+    localparam [7:0] OPC_STORE  = 8'h03;
+    localparam [7:0] OPC_LOAD_W = 8'h04;
+    localparam [7:0] OPC_NTT    = 8'h10;
+    localparam [7:0] OPC_INTT   = 8'h11;
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
@@ -81,8 +86,9 @@ module ntt_engine #(
                         current_slot <= cmd_slot[1:0];
                         
                         case (cmd_opcode)
-                            OPC_LOAD:  state <= S_DMA_READ;
-                            OPC_STORE: state <= S_DMA_WRITE;
+                            OPC_LOAD:   state <= S_DMA_READ;
+                            OPC_STORE:  state <= S_DMA_WRITE;
+                            OPC_LOAD_W: state <= S_LOAD_W;
                             OPC_NTT: begin
                                 mode_intt <= 0;
                                 state <= S_CALC;
@@ -105,6 +111,12 @@ module ntt_engine #(
 
                 S_DMA_WRITE: begin
                     dpi_write_burst({16'b0, cmd_dma_addr}, N, mem[current_slot]);
+                    state <= S_IDLE;
+                end
+                
+                S_LOAD_W: begin
+                    // Load 2*N words (Forward + Inverse)
+                    dpi_read_burst({16'b0, cmd_dma_addr}, 2*N, w_mem);
                     state <= S_IDLE;
                 end
 
