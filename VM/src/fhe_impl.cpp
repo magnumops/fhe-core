@@ -1,105 +1,131 @@
 #include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
+#include <pybind11/numpy.h>
 #include "seal/seal.h"
-#include <iostream>
 #include <vector>
 #include <memory>
-#include <sstream>
+#include <iostream>
 
+namespace py = pybind11;
 using namespace seal;
 
-class FHEManager {
+class SealContextWrapper {
 public:
-    std::unique_ptr<SEALContext> context;
+    std::shared_ptr<SEALContext> context;
     std::unique_ptr<KeyGenerator> keygen;
+    SecretKey secret_key;
+    PublicKey public_key;
+    RelinKeys relin_keys;
     std::unique_ptr<Encryptor> encryptor;
     std::unique_ptr<Evaluator> evaluator;
     std::unique_ptr<Decryptor> decryptor;
+    std::unique_ptr<BatchEncoder> encoder;
     
-    SecretKey secret_key;
-    PublicKey public_key;
+    size_t poly_modulus_degree;
 
-    FHEManager() {
+    SealContextWrapper(size_t poly_degree, const std::vector<uint64_t>& moduli) 
+        : poly_modulus_degree(poly_degree) 
+    {
         EncryptionParameters parms(scheme_type::bfv);
-        size_t poly_modulus_degree = 4096;
-        parms.set_poly_modulus_degree(poly_modulus_degree);
-        
-        parms.set_coeff_modulus(CoeffModulus::BFVDefault(poly_modulus_degree));
-        
-        // ИСПРАВЛЕНИЕ: Увеличиваем модуль с 1024 до 65537.
-        // Это позволяет шифровать числа до 65536.
+        parms.set_poly_modulus_degree(poly_degree);
+        std::vector<Modulus> mods;
+        for (uint64_t m : moduli) mods.push_back(Modulus(m));
+        parms.set_coeff_modulus(mods);
         parms.set_plain_modulus(65537);
 
-        context = std::make_unique<SEALContext>(parms);
+        context = std::make_shared<SEALContext>(parms);
+        
+        // Validation Logic
+        if (!context->parameters_set()) {
+            std::cerr << "[CPP] SEAL Context Invalid! Reason: " 
+                      << context->parameter_error_message() << std::endl;
+        } else {
+            auto context_data = context->key_context_data();
+            std::cout << "[CPP] SEAL Context Valid. Chain size: " << context->key_context_data()->chain_index() + 1 << std::endl;
+            std::cout << "[CPP] Coeff Modulus Size (Top): " << context_data->parms().coeff_modulus().size() << std::endl;
+        }
 
         keygen = std::make_unique<KeyGenerator>(*context);
         secret_key = keygen->secret_key();
         keygen->create_public_key(public_key);
-
+        keygen->create_relin_keys(relin_keys);
         encryptor = std::make_unique<Encryptor>(*context, public_key);
         evaluator = std::make_unique<Evaluator>(*context);
         decryptor = std::make_unique<Decryptor>(*context, secret_key);
+        encoder = std::make_unique<BatchEncoder>(*context);
     }
 
-    std::string encrypt_num(int value) {
-        std::stringstream ss_hex;
-        ss_hex << std::hex << value;
-        Plaintext plain(ss_hex.str());
-
+    Ciphertext encrypt(const std::vector<int64_t>& data) {
+        Plaintext plain;
+        encoder->encode(data, plain);
         Ciphertext encrypted;
         encryptor->encrypt(plain, encrypted);
-        
-        std::stringstream ss;
-        encrypted.save(ss);
-        return ss.str();
+        return encrypted;
     }
 
-    int decrypt_num(const std::string& serialized_cipher) {
-        std::stringstream ss(serialized_cipher);
-        Ciphertext encrypted;
-        encrypted.load(*context, ss);
-
+    std::vector<int64_t> decrypt(const Ciphertext& encrypted) {
         Plaintext plain;
         decryptor->decrypt(encrypted, plain);
-        
-        return std::stoi(plain.to_string(), nullptr, 16);
+        std::vector<int64_t> result;
+        encoder->decode(plain, result);
+        return result;
     }
 
-    std::string add_ciphers(const std::string& c1_str, const std::string& c2_str) {
-        std::stringstream ss1(c1_str);
-        std::stringstream ss2(c2_str);
+    std::vector<uint64_t> get_poly_component(Ciphertext& ct, size_t poly_idx, size_t rns_idx) {
+        size_t N = ct.poly_modulus_degree();
+        size_t K = ct.coeff_modulus_size();
+        size_t Size = ct.size();
         
-        Ciphertext c1, c2, result;
-        c1.load(*context, ss1);
-        c2.load(*context, ss2);
+        if (poly_idx >= Size) {
+            std::cerr << "[CPP] Poly Error: " << poly_idx << " >= " << Size << std::endl;
+            throw std::runtime_error("Poly index out of bounds");
+        }
+        if (rns_idx >= K) {
+            std::cerr << "[CPP] RNS Error: " << rns_idx << " >= " << K << std::endl;
+            throw std::runtime_error("RNS index out of bounds");
+        }
+        
+        uint64_t* ptr = ct.data();
+        size_t offset = poly_idx * (N * K) + rns_idx * N;
+        
+        return std::vector<uint64_t>(ptr + offset, ptr + offset + N);
+    }
 
-        evaluator->add(c1, c2, result);
-
-        std::stringstream ss_out;
-        result.save(ss_out);
-        return ss_out.str();
+    void set_poly_component(Ciphertext& ct, size_t poly_idx, size_t rns_idx, const std::vector<uint64_t>& data) {
+        size_t N = ct.poly_modulus_degree();
+        size_t K = ct.coeff_modulus_size();
+        size_t Size = ct.size();
+        
+        if (data.size() != N) throw std::runtime_error("Data size mismatch");
+        if (poly_idx >= Size) {
+            std::cerr << "[CPP] Poly Error: " << poly_idx << " >= " << Size << std::endl;
+            throw std::runtime_error("Poly index out of bounds");
+        }
+        if (rns_idx >= K) {
+            std::cerr << "[CPP] RNS Error: " << rns_idx << " >= " << K << std::endl;
+            throw std::runtime_error("RNS index out of bounds");
+        }
+        
+        uint64_t* ptr = ct.data(); 
+        size_t offset = poly_idx * (N * K) + rns_idx * N;
+        
+        std::copy(data.begin(), data.end(), ptr + offset);
+    }
+    
+    void resize_ct(Ciphertext& ct, size_t size) {
+        ct.resize(*context, size);
     }
 };
 
-FHEManager* g_fhe = nullptr;
-void init_fhe() { if (!g_fhe) g_fhe = new FHEManager(); }
-void py_init_fhe() { init_fhe(); }
+void init_fhe(py::module &m) {
+    py::class_<Ciphertext>(m, "Ciphertext")
+        .def(py::init<>());
 
-pybind11::bytes py_encrypt(int value) {
-    if (!g_fhe) init_fhe();
-    // Простейшая проверка на переполнение, чтобы не падать с ValueError
-    if (value >= 65537) {
-        std::cerr << "[CPP] Error: Value too large for current PlainModulus (max 65536)" << std::endl;
-        return std::string();
-    }
-    return g_fhe->encrypt_num(value);
-}
-
-int py_decrypt(pybind11::bytes cipher) {
-    if (!g_fhe) return -1;
-    return g_fhe->decrypt_num(cipher);
-}
-
-pybind11::bytes py_add(pybind11::bytes c1, pybind11::bytes c2) {
-    if (!g_fhe) return std::string();
-    return g_fhe->add_ciphers(c1, c2);
+    py::class_<SealContextWrapper>(m, "SealContext")
+        .def(py::init<size_t, const std::vector<uint64_t>&>())
+        .def("encrypt", &SealContextWrapper::encrypt)
+        .def("decrypt", &SealContextWrapper::decrypt)
+        .def("get_poly", &SealContextWrapper::get_poly_component)
+        .def("set_poly", &SealContextWrapper::set_poly_component)
+        .def("resize_ct", &SealContextWrapper::resize_ct);
 }

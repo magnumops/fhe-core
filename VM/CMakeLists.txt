@@ -74,3 +74,10 @@ pybind11_add_module(alu_tester
     ${CMAKE_CURRENT_BINARY_DIR}/Vvec_alu__Slow.cpp
     ${VERILATOR_INCLUDE_DIR}/verilated.cpp
 )
+
+# --- SEAL WRAPPER (Helper for Day 10) ---
+pybind11_add_module(logos_fhe
+    src/main.cpp
+    src/fhe_impl.cpp
+)
+target_link_libraries(logos_fhe PRIVATE SEAL::seal)

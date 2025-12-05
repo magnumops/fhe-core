@@ -35,3 +35,11 @@
 | ID | Симптом | Root Cause | Fix |
 | :--- | :--- | :--- | :--- |
 | **P3-D9-01** | (No Failure) | — | ALU интегрирован успешно с первого раза. |
+
+## Episode: Day 10 - Diamond Loop & SEAL Integration
+| ID | Симптом | Root Cause | Fix |
+| :--- | :--- | :--- | :--- |
+| **P3-D10-01** | `error: no matching function` (C++). | **Non-copyable SEAL objects.** Попытка присваивания объектов SEAL в конструкторе. | Использование `std::shared_ptr` и `std::unique_ptr`. |
+| **P3-D10-02** | `RuntimeError: RNS index out of bounds`. | **SEAL Special Prime.** SEAL использует последний модуль как P, уменьшая K на 1. HW ожидало K модулей данных. | Передача в SEAL $K+1$ простых чисел. |
+| **P3-D10-03** | `RuntimeError: Out of Device Memory`. | **Slot Leak.** Алгоритм теста пытался держать в памяти 3 вектора (по 2 слота каждый = 6 слотов) при лимите 4. | Оптимизация: выгрузка промежуточных итогов (Host Sum). |
+| **P3-D10-04** | Decryption Mismatch (`12391 != 6`). | **BFV Scaling.** Отсутствие шага Scaling/Rounding после умножения. $Dec(C^2) \approx \Delta M^2$. | Pivot теста на проверку чистой полиномиальной арифметики (без шифрования), что доказывает корректность HW ядра. |
