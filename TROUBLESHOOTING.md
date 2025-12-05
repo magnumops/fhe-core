@@ -271,3 +271,7 @@ Docker & Python Caching
 ## PyBind11 Arguments
 **Проблема:** `TypeError: incompatible function arguments` при вызове с именованными аргументами (`func(a=1)`).
 **Решение:** По умолчанию PyBind экспортирует функции только с позиционными аргументами. Либо использовать `func(1)`, либо явно прописывать `py::arg("a")` в C++ дефиниции.
+
+## Verilog Command Interfaces
+**Проблема:** Потеря команд при быстрой отправке из C++.
+**Решение:** Всегда реализовывать механизм Ready/Valid (Handshake). C++ драйвер обязан ждать `top->cmd_ready == 1` перед снятием `cmd_valid`.
