@@ -5,19 +5,16 @@ module ntt_engine #(
 )(
     input  wire        clk,
     input  wire        rst,
-    // Command Interface
     input  wire        cmd_valid,
     input  wire [7:0]  cmd_opcode,
     input  wire [3:0]  cmd_slot,
     input  wire [47:0] cmd_dma_addr,
     output reg         ready,
     
-    // Config
     input  wire [63:0] q,
     input  wire [63:0] mu,
     input  wire [63:0] n_inv,
 
-    // Arbiter Interface
     output reg         arb_req,
     output reg         arb_we,
     output reg [47:0]  arb_addr,
@@ -39,27 +36,24 @@ module ntt_engine #(
     wire       agu_valid, agu_done;
     wire [N_LOG-1:0] agu_addr_u, agu_addr_v, agu_addr_w;
 
-    // Performance Counters
     reg [63:0] perf_ntt_ops;
     assign perf_counter_out = perf_ntt_ops;
 
-    // FSM States
-    localparam S_IDLE       = 0;
+    localparam S_IDLE         = 0;
     localparam S_DMA_READ_REQ = 1; 
-    localparam S_DMA_READ_WAIT= 2; // Not strictly used in this ver but kept
-    localparam S_DMA_WRITE  = 3;
-    localparam S_CALC       = 4;
+    localparam S_DMA_READ_WAIT= 2;
+    localparam S_DMA_WRITE    = 3; // RESTORED
+    localparam S_CALC         = 4;
 
     reg [2:0] state;
     assign dbg_state = state;
 
     localparam [7:0] OPC_LOAD   = 8'h02;
-    localparam [7:0] OPC_STORE  = 8'h03;
+    localparam [7:0] OPC_STORE  = 8'h03; // SUPPORTED
     localparam [7:0] OPC_LOAD_W = 8'h04;
     localparam [7:0] OPC_NTT    = 8'h10;
     localparam [7:0] OPC_INTT   = 8'h11;
 
-    // DMA Counters
     reg [31:0] dma_req_idx; 
     reg [31:0] dma_ack_idx; 
     reg [31:0] dma_len;     
@@ -70,12 +64,16 @@ module ntt_engine #(
         .valid(agu_valid), .done(agu_done)
     );
     
-    // Stub Math Logic
+    wire [N_LOG:0] w_addr_full = {mode_intt, agu_addr_w};
+    wire [63:0] w_data = w_mem[w_addr_full];
     wire [63:0] u_in = mem[current_slot][agu_addr_u];
     wire [63:0] v_in = mem[current_slot][agu_addr_v];
-    // In real code, butterfly and mod_mult go here.
-    // For this test, we just write back dummy values or keep state.
-    // We assume data integrity is Phase 7 task. For Phase 6 we verify flow.
+    wire [63:0] u_out, v_out;
+
+    // REAL BUTTERFLY INSTANCE
+    butterfly u_bf (
+        .u(u_in), .v(v_in), .w(w_data), .q(q), .mu(mu), .u_out(u_out), .v_out(v_out)
+    );
 
     always @(posedge clk) begin
         if (rst) perf_ntt_ops <= 0;
@@ -88,8 +86,9 @@ module ntt_engine #(
             ready <= 1;
             agu_start <= 0;
             arb_req <= 0;
+            arb_we  <= 0;
         end else begin
-            // 1. Always capture data if it comes (valid is pulsed)
+            // 1. READ Response Handling
             if (arb_valid) begin
                  if (state == S_DMA_READ_REQ) begin
                     if (cmd_opcode == OPC_LOAD_W) w_mem[dma_ack_idx] <= arb_rdata;
@@ -97,18 +96,30 @@ module ntt_engine #(
                     dma_ack_idx <= dma_ack_idx + 1;
                  end
             end
+            
+            // 2. Internal Update (NTT)
+            if (state == S_CALC && agu_valid) begin
+                mem[current_slot][agu_addr_u] <= u_out;
+                mem[current_slot][agu_addr_v] <= v_out;
+            end
 
             case (state)
                 S_IDLE: begin
                     ready <= 1;
                     dma_req_idx <= 0;
                     dma_ack_idx <= 0;
+                    arb_req <= 0; // Ensure req is low
                     if (cmd_valid) begin
                         ready <= 0;
                         current_slot <= cmd_slot[1:0];
                         case (cmd_opcode)
                             OPC_LOAD: begin
                                 state <= S_DMA_READ_REQ;
+                                dma_len <= N;
+                                arb_addr <= cmd_dma_addr;
+                            end
+                            OPC_STORE: begin
+                                state <= S_DMA_WRITE;
                                 dma_len <= N;
                                 arb_addr <= cmd_dma_addr;
                             end
@@ -119,6 +130,12 @@ module ntt_engine #(
                             end
                             OPC_NTT: begin
                                 state <= S_CALC;
+                                mode_intt <= 0;
+                                agu_start <= 1;
+                            end
+                            OPC_INTT: begin
+                                state <= S_CALC;
+                                mode_intt <= 1;
                                 agu_start <= 1;
                             end
                             default: state <= S_IDLE;
@@ -127,25 +144,36 @@ module ntt_engine #(
                 end
                 
                 S_DMA_READ_REQ: begin
-                    // STRICT SEQUENTIAL FIX:
-                    // Only send next request if we received the previous one (or if start)
-                    // This prevents flooding the dumb arbiter.
                     if (dma_req_idx < dma_len && dma_req_idx == dma_ack_idx) begin
                         arb_req <= 1;
                         arb_we <= 0;
                         arb_addr <= cmd_dma_addr + (dma_req_idx * 8);
-                        
                         if (arb_gnt) begin
                             dma_req_idx <= dma_req_idx + 1;
-                            arb_req <= 0; // De-assert immediately to wait for ack
+                            arb_req <= 0; 
                         end
                     end else begin
                         arb_req <= 0;
                     end
-                    
-                    // Completion Check
-                    if (dma_ack_idx >= dma_len) begin
-                         state <= S_IDLE;
+                    if (dma_ack_idx >= dma_len) state <= S_IDLE;
+                end
+                
+                S_DMA_WRITE: begin
+                    if (dma_req_idx < dma_len) begin
+                        arb_req <= 1;
+                        arb_we <= 1;
+                        arb_addr <= cmd_dma_addr + (dma_req_idx * 8);
+                        arb_wdata <= mem[current_slot][dma_req_idx];
+                        
+                        if (arb_gnt) begin
+                            dma_req_idx <= dma_req_idx + 1;
+                            // For write, we don't strictly wait for valid in this architecture
+                            // But we can toggle req to be safe/polite to arbiter
+                            arb_req <= 0; 
+                        end
+                    end else begin
+                        arb_req <= 0;
+                        state <= S_IDLE;
                     end
                 end
                 
