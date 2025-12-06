@@ -11,34 +11,18 @@ find_package(SEAL REQUIRED)
 set(VERILATOR_INCLUDE_DIR "/usr/share/verilator/include")
 include_directories(${VERILATOR_INCLUDE_DIR} ${VERILATOR_INCLUDE_DIR}/vltstd)
 
-set(VERILOG_TOP "${CMAKE_SOURCE_DIR}/src/rtl/logos_core.v")
-set(RTL_SOURCES 
-    ${VERILOG_TOP}
-    "${CMAKE_SOURCE_DIR}/src/rtl/ntt/hazard_unit.v"
-    "${CMAKE_SOURCE_DIR}/src/rtl/ntt/ntt_core.v"
-    "${CMAKE_SOURCE_DIR}/src/rtl/command_processor.v"
-    "${CMAKE_SOURCE_DIR}/src/rtl/mem_arbiter.v"
-    "${CMAKE_SOURCE_DIR}/src/rtl/dpi_mem_wrapper.v"
-    "${CMAKE_SOURCE_DIR}/src/rtl/dma_unit.v"
-)
-
-add_custom_command(
-    OUTPUT Vlogos_core.cpp Vlogos_core.h Vlogos_core__Syms.cpp Vlogos_core__Syms.h Vlogos_core__Slow.cpp
-    COMMAND verilator --cc --exe --Mdir . --CFLAGS "-fPIC" -Wno-fatal --top-module logos_core ${RTL_SOURCES}
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    DEPENDS ${RTL_SOURCES}
-    COMMENT "Verilating logos_core..."
-)
+set(VERILATOR_OUT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/verilator_out")
+include_directories(${VERILATOR_OUT_DIR})
+file(GLOB VERILATOR_GENERATED_SOURCES "${VERILATOR_OUT_DIR}/*.cpp")
 
 pybind11_add_module(logos_emu
     src/emulator_core.cpp
     src/dpi_impl.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/Vlogos_core.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/Vlogos_core__Syms.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/Vlogos_core__Slow.cpp
+    ${VERILATOR_GENERATED_SOURCES}
     ${VERILATOR_INCLUDE_DIR}/verilated.cpp
-    ${VERILATOR_INCLUDE_DIR}/verilated_dpi.cpp 
+    ${VERILATOR_INCLUDE_DIR}/verilated_dpi.cpp
+    ${VERILATOR_INCLUDE_DIR}/verilated_threads.cpp 
 )
-
 target_include_directories(logos_emu PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${VERILATOR_INCLUDE_DIR})
 target_compile_options(logos_emu PRIVATE -fPIC)
+target_link_libraries(logos_emu PRIVATE SEAL::seal)

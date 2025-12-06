@@ -1,43 +1,12 @@
-FROM ubuntu:22.04
-
-# 1. Install Dependencies
-# Update apt and install essential tools
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
-    git \
-    python3 \
-    python3-pip \
-    python3-dev \
-    verilator \
-    && rm -rf /var/lib/apt/lists/*
-
-# 2. Install Python Deps
-RUN pip3 install pybind11 numpy
-
-# 3. Setup Workspace
+FROM ubuntu:24.04
+RUN apt-get update && apt-get install -y build-essential cmake git python3 python3-dev python3-pip verilator ccache libgmp-dev && rm -rf /var/lib/apt/lists/*
+RUN pip3 install --break-system-packages pybind11 numpy pytest
 WORKDIR /tmp
-
-# 4. Install Microsoft SEAL (Cached Layer)
-# We compile it once to save time
-RUN git clone https://github.com/microsoft/SEAL.git && \
-    cd SEAL && \
-    git checkout v4.1.1 && \
-    cmake -S . -B build -DSEAL_USE_MSGSL=OFF -DSEAL_USE_ZLIB=OFF -DSEAL_BUILD_EXAMPLES=OFF -DSEAL_BUILD_TESTS=OFF && \
-    cmake --build build && \
-    cmake --install build
-
-# 5. Application Layer
+RUN git clone https://github.com/microsoft/SEAL.git && cd SEAL && cmake -S . -B build -DSEAL_USE_MSGSL=OFF -DSEAL_USE_ZLIB=OFF -DSEAL_USE_ZSTD=OFF && cmake --build build -j$(nproc) && cmake --install build && cd .. && rm -rf SEAL
 WORKDIR /app
 COPY . /app
-
-# 6. Build Project
-# Clean build to ensure no artifacts
-RUN rm -rf build && mkdir -p build && cd build && cmake .. && make
-
-# 7. Environment
-ENV PYTHONPATH="/app/build:/app/src/python:${PYTHONPATH}"
-
-# 8. Run Verification Test (Phase 2 Day 7)
-RUN python3 tests/test_day8_dma.py
-RUN python3 tests/test_day10_emerald.py
+RUN mkdir -p verilator_out
+RUN verilator --cc --exe --Mdir verilator_out --CFLAGS "-fPIC" -Wno-fatal -y src/rtl/ntt -y src/rtl --top-module logos_core src/rtl/logos_core.v src/rtl/command_processor.v src/rtl/mem_arbiter.v src/rtl/dpi_mem_wrapper.v src/rtl/dma_unit.v src/rtl/ntt/ntt_core.v src/rtl/ntt/ntt_engine.v src/rtl/ntt/ntt_control.v src/rtl/ntt/butterfly.v src/rtl/ntt/mod_mult.v src/rtl/ntt/mod_add.v src/rtl/ntt/mod_sub.v src/rtl/ntt/vec_alu.v
+RUN rm -rf build && mkdir -p build && cd build && cmake .. && make -j$(nproc)
+ENV PYTHONPATH="${PYTHONPATH}:/app/build"
+CMD ["/bin/bash"]

@@ -17,3 +17,10 @@ obj_dir/
 # System & IDE
 .DS_Store
 .vscode/
+VM/build/
+VM/verilator_out/
+VM/__pycache__/
+*.so
+*.o
+*.vcd
+tests/day6/__pycache__
