@@ -26,3 +26,7 @@ pybind11_add_module(logos_emu
 target_include_directories(logos_emu PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${VERILATOR_INCLUDE_DIR})
 target_compile_options(logos_emu PRIVATE -fPIC)
 target_link_libraries(logos_emu PRIVATE SEAL::seal)
+
+# --- SEAL EXPORTER TOOL ---
+add_executable(seal_exporter src/tools/seal_exporter.cpp)
+target_link_libraries(seal_exporter PRIVATE SEAL::seal)
