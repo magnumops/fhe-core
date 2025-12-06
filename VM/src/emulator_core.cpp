@@ -2,8 +2,8 @@
 #include "Vlogos_core.h"
 #include "verilated.h"
 #include "svdpi.h"
+#include <iostream>
 
-// Используем dpi_ версии
 extern "C" void dpi_write_ram(long long addr, long long val);
 extern "C" long long dpi_read_ram(long long addr);
 
@@ -30,8 +30,17 @@ public:
         top->cmd_valid = 1;
         top->cmd_data = cmd_val;
         top->eval();
-        int timeout = 100;
-        while (top->cmd_ready == 0 && timeout > 0) { tick(); timeout--; }
+
+        int timeout = 10000; // INCREASED TIMEOUT
+        while (top->cmd_ready == 0 && timeout > 0) {
+            tick();
+            timeout--;
+        }
+        
+        if (timeout == 0) {
+            std::cerr << "[CPP FATAL] Command Timeout! Core stuck busy. CMD=" << std::hex << cmd_val << std::dec << std::endl;
+        }
+
         tick(); 
         top->cmd_valid = 0;
         top->eval();
