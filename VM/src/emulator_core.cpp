@@ -4,7 +4,6 @@
 #include "svdpi.h"
 #include <iostream>
 
-// Декларация внешних функций (dpi_)
 extern "C" void dpi_write_ram(long long addr, long long val);
 extern "C" long long dpi_read_ram(long long addr);
 
@@ -27,7 +26,6 @@ public:
     void reset_state() { top->rst = 1; tick(); top->rst = 0; tick(); }
     void run_cycles(int n) { for(int i=0; i<n; i++) tick(); }
 
-    // UPDATED: Added timeout_cycles argument with default
     void push_command(uint64_t cmd_val, int timeout_cycles) {
         top->cmd_valid = 1;
         top->cmd_data = cmd_val;
@@ -40,13 +38,18 @@ public:
         }
         
         if (t == 0) {
-            // Non-fatal warning allows Python to decide what to do
             std::cerr << "[CPP WARNING] CMD Timeout! 0x" << std::hex << cmd_val << std::dec << std::endl;
         }
 
+        // Cycle 1: Command Processor captures Command
         tick(); 
+        
+        // Cycle 2: HOLD CYCLE (Critical Fix)
+        // Command Processor output (start) is high now.
+        // NTT Engine captures cmd_data NOW. We must not change data yet.
         top->cmd_valid = 0;
         top->eval();
+        tick(); 
     }
     
     int get_core_ops(int core_id) {
@@ -65,7 +68,6 @@ PYBIND11_MODULE(logos_emu, m) {
         .def("reset", &LogosSim::reset_state)
         .def("step", &LogosSim::step)
         .def("run_cycles", &LogosSim::run_cycles)
-        // Bind push_command with default argument using py::arg
         .def("push_command", &LogosSim::push_command, py::arg("cmd_val"), py::arg("timeout_cycles") = 200000)
         .def("get_core_ops", &LogosSim::get_core_ops);
 }

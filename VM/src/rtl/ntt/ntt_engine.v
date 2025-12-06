@@ -33,6 +33,10 @@ module ntt_engine #(
     reg [1:0]  current_slot;
     reg [1:0]  source_slot;
     
+    // INTERNAL COMMAND REGISTERS (The Fix)
+    reg [47:0] reg_dma_addr;
+    reg [7:0]  reg_opcode;
+    
     reg        mode_intt;
     reg        agu_start;
     wire       agu_valid, agu_done;
@@ -94,7 +98,6 @@ module ntt_engine #(
         .op_a(alu_in_a), .op_b(alu_in_b), .q(q), .mu(mu), .res_out(alu_out)
     );
 
-    // Combinational Data
     assign arb_wdata = (state == S_DMA_WRITE) ? mem[current_slot][dma_req_idx] : 64'd0;
 
     always @(posedge clk) begin
@@ -117,7 +120,8 @@ module ntt_engine #(
         end else begin
             if (arb_valid) begin
                  if (state == S_DMA_READ_REQ) begin
-                    if (cmd_opcode == OPC_LOAD_W) w_mem[dma_ack_idx] <= arb_rdata;
+                    // Use Registered Opcode
+                    if (reg_opcode == OPC_LOAD_W) w_mem[dma_ack_idx] <= arb_rdata;
                     else mem[current_slot][dma_ack_idx] <= arb_rdata;
                     dma_ack_idx <= dma_ack_idx + 1;
                  end
@@ -152,10 +156,14 @@ module ntt_engine #(
                     dma_ack_idx <= 0;
                     arb_req <= 0;
                     if (cmd_valid) begin
-                        if (CORE_ID == 0) $display("[RTL] CMD Recv: Op=%h", cmd_opcode);
+                        $display("[RTL Core%0d] CMD: Op=%h Addr=%h", CORE_ID, cmd_opcode, cmd_dma_addr);
                         ready <= 0;
                         current_slot <= cmd_slot[1:0];
                         source_slot  <= cmd_dma_addr[1:0]; 
+                        
+                        // LATCH INPUTS
+                        reg_dma_addr <= cmd_dma_addr;
+                        reg_opcode   <= cmd_opcode;
                         
                         case (cmd_opcode)
                             OPC_LOAD: begin state <= S_DMA_READ_REQ; dma_len <= N; arb_addr <= cmd_dma_addr; end
@@ -177,7 +185,8 @@ module ntt_engine #(
                         arb_req <= 1; arb_we <= 0;
                         if (arb_gnt) begin 
                             dma_req_idx <= dma_req_idx + 1; 
-                            arb_addr <= cmd_dma_addr + ((dma_req_idx + 1) * 8); 
+                            // USE REGISTERED ADDRESS
+                            arb_addr <= reg_dma_addr + ((dma_req_idx + 1) * 8); 
                             arb_req <= 0; 
                         end
                     end else arb_req <= 0;
@@ -188,9 +197,9 @@ module ntt_engine #(
                     if (dma_req_idx < dma_len) begin
                         arb_req <= 1; arb_we <= 1;
                         if (arb_gnt) begin 
-                            if (CORE_ID==0 && dma_req_idx < 8) $display("[STORE] Idx=%d Gnt=1 Addr=%h Data=%d", dma_req_idx, arb_addr, arb_wdata);
                             dma_req_idx <= dma_req_idx + 1; 
-                            arb_addr <= cmd_dma_addr + ((dma_req_idx + 1) * 8);
+                            // USE REGISTERED ADDRESS
+                            arb_addr <= reg_dma_addr + ((dma_req_idx + 1) * 8);
                         end
                     end else begin arb_req <= 0; state <= S_IDLE; end
                 end
@@ -200,7 +209,8 @@ module ntt_engine #(
                         arb_req <= 1; arb_we <= 0;
                         if (arb_gnt) begin 
                             dma_req_idx <= dma_req_idx + 1; 
-                            arb_addr <= cmd_dma_addr + ((dma_req_idx + 1) * 8);
+                            // USE REGISTERED ADDRESS
+                            arb_addr <= reg_dma_addr + ((dma_req_idx + 1) * 8); 
                             arb_req <= 0; 
                         end
                     end else arb_req <= 0;
