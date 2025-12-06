@@ -11,9 +11,8 @@ module ntt_engine #(
     input  wire [47:0] cmd_dma_addr,
     output reg         ready,
     
-    input  wire [63:0] q,
-    input  wire [63:0] mu,
-    input  wire [63:0] n_inv,
+    // Config Registers (Internal now)
+    // Removed inputs: q, mu, n_inv
 
     output reg         arb_req,
     output reg         arb_we,
@@ -29,6 +28,11 @@ module ntt_engine #(
 
     reg [63:0] mem [0:3][0:N-1];
     reg [63:0] w_mem [0:2*N-1];
+    
+    // RNS Configuration Registers
+    reg [63:0] q;
+    reg [63:0] mu;
+    reg [63:0] n_inv;
 
     reg [1:0]  current_slot;
     reg        mode_intt;
@@ -42,15 +46,17 @@ module ntt_engine #(
     localparam S_IDLE         = 0;
     localparam S_DMA_READ_REQ = 1; 
     localparam S_DMA_READ_WAIT= 2;
-    localparam S_DMA_WRITE    = 3; // RESTORED
+    localparam S_DMA_WRITE    = 3;
     localparam S_CALC         = 4;
+    localparam S_DMA_CONFIG   = 5; // NEW STATE
 
     reg [2:0] state;
     assign dbg_state = state;
 
     localparam [7:0] OPC_LOAD   = 8'h02;
-    localparam [7:0] OPC_STORE  = 8'h03; // SUPPORTED
+    localparam [7:0] OPC_STORE  = 8'h03;
     localparam [7:0] OPC_LOAD_W = 8'h04;
+    localparam [7:0] OPC_CONFIG = 8'h05; // NEW OPCODE
     localparam [7:0] OPC_NTT    = 8'h10;
     localparam [7:0] OPC_INTT   = 8'h11;
 
@@ -70,7 +76,6 @@ module ntt_engine #(
     wire [63:0] v_in = mem[current_slot][agu_addr_v];
     wire [63:0] u_out, v_out;
 
-    // REAL BUTTERFLY INSTANCE
     butterfly u_bf (
         .u(u_in), .v(v_in), .w(w_data), .q(q), .mu(mu), .u_out(u_out), .v_out(v_out)
     );
@@ -87,12 +92,24 @@ module ntt_engine #(
             agu_start <= 0;
             arb_req <= 0;
             arb_we  <= 0;
+            // Default Config (Optional)
+            q <= 64'h0800000000000001; 
+            mu <= 0; n_inv <= 0;
         end else begin
             // 1. READ Response Handling
             if (arb_valid) begin
                  if (state == S_DMA_READ_REQ) begin
                     if (cmd_opcode == OPC_LOAD_W) w_mem[dma_ack_idx] <= arb_rdata;
                     else mem[current_slot][dma_ack_idx] <= arb_rdata;
+                    dma_ack_idx <= dma_ack_idx + 1;
+                 end
+                 // CONFIG LOADING
+                 if (state == S_DMA_CONFIG) begin
+                    case (dma_ack_idx)
+                        0: q <= arb_rdata;
+                        1: mu <= arb_rdata;
+                        2: n_inv <= arb_rdata;
+                    endcase
                     dma_ack_idx <= dma_ack_idx + 1;
                  end
             end
@@ -108,7 +125,7 @@ module ntt_engine #(
                     ready <= 1;
                     dma_req_idx <= 0;
                     dma_ack_idx <= 0;
-                    arb_req <= 0; // Ensure req is low
+                    arb_req <= 0;
                     if (cmd_valid) begin
                         ready <= 0;
                         current_slot <= cmd_slot[1:0];
@@ -126,6 +143,11 @@ module ntt_engine #(
                             OPC_LOAD_W: begin
                                 state <= S_DMA_READ_REQ;
                                 dma_len <= 2*N;
+                                arb_addr <= cmd_dma_addr;
+                            end
+                            OPC_CONFIG: begin
+                                state <= S_DMA_CONFIG;
+                                dma_len <= 3; // q, mu, n_inv
                                 arb_addr <= cmd_dma_addr;
                             end
                             OPC_NTT: begin
@@ -164,11 +186,8 @@ module ntt_engine #(
                         arb_we <= 1;
                         arb_addr <= cmd_dma_addr + (dma_req_idx * 8);
                         arb_wdata <= mem[current_slot][dma_req_idx];
-                        
                         if (arb_gnt) begin
                             dma_req_idx <= dma_req_idx + 1;
-                            // For write, we don't strictly wait for valid in this architecture
-                            // But we can toggle req to be safe/polite to arbiter
                             arb_req <= 0; 
                         end
                     end else begin
@@ -177,6 +196,22 @@ module ntt_engine #(
                     end
                 end
                 
+                S_DMA_CONFIG: begin
+                    // Same STRICT logic as READ_REQ
+                    if (dma_req_idx < dma_len && dma_req_idx == dma_ack_idx) begin
+                        arb_req <= 1;
+                        arb_we <= 0;
+                        arb_addr <= cmd_dma_addr + (dma_req_idx * 8);
+                        if (arb_gnt) begin
+                            dma_req_idx <= dma_req_idx + 1;
+                            arb_req <= 0; 
+                        end
+                    end else begin
+                        arb_req <= 0;
+                    end
+                    if (dma_ack_idx >= dma_len) state <= S_IDLE;
+                end
+
                 S_CALC: begin
                     agu_start <= 0;
                     if (agu_done) state <= S_IDLE;

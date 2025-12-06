@@ -16,10 +16,10 @@ module ntt_core #(parameter CORE_ID = 0)(
         .cmd_slot(slot),
         .cmd_dma_addr(dma_addr),
         .ready(ready),
-        .q(64'h0800000000000001), .mu(0), .n_inv(0),
+        // RNS Config removed (Internal)
         .arb_req(mem_req), .arb_we(mem_we), .arb_addr(mem_addr[47:0]), .arb_wdata(mem_wdata),
         .arb_gnt(mem_gnt), .arb_valid(mem_valid), .arb_rdata(mem_rdata),
         .dbg_state(),
-        .perf_counter_out(op_count) // CONNECTED!
+        .perf_counter_out(op_count)
     );
 endmodule
