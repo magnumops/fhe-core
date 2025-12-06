@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module butterfly (
     input  wire [63:0] u,
     input  wire [63:0] v,

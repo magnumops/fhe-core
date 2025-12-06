@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module logos_core #(
     parameter N_LOG = 12,
     parameter N     = 4096

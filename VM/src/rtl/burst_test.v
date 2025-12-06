@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module burst_test(
     input clk,
     input [63:0] start_addr,

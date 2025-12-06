@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module dpi_mem_wrapper(
     input clk,
     input req,

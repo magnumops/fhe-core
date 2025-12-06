@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module vec_alu (
     input  wire [2:0]  opcode,
     input  wire [63:0] op_a,

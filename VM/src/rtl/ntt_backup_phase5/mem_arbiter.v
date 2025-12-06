@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module mem_arbiter #(
     parameter N = 4096,
     parameter MAX_DATA = 8192 // Support Twiddle Factors load

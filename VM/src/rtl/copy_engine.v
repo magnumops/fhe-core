@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module copy_engine(
     input clk,
     input [63:0] src_addr,

@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module logos_core(
     input clk, input rst,
     input cmd_valid, input [63:0] cmd_data, output cmd_ready, output halted,

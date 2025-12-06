@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module hazard_unit(
     input start_req_0, input start_req_1,
     input [3:0] bank_mask_0, input [3:0] bank_mask_1,

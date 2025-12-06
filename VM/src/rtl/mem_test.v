@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module mem_test(
     input clk,
     input [63:0] addr,      // 64-битный адрес

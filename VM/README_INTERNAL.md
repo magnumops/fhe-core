@@ -1,57 +1,103 @@
-# Logos FHE Emulator (Phase 2: NTT Engine)
+# Logos FHE Accelerator Emulator (v6.0 Dual Core RNS)
 
-## Архитектура v2.0
-Проект реализует аппаратный ускоритель для Number Theoretic Transform (NTT), используемый в схеме BFV.
-1.  **Level 1: Python SDK** — Генерирует данные, выполняет Bit-Reversal перестановку (DIT требование) и управляет DMA.
-2.  **Level 2: C++ Driver (`emulator_core.cpp`)** — Управляет тактированием Verilator и передает данные через DPI.
-3.  **Level 3: Memory (`dpi_impl.cpp`)** — Виртуальная память (Sparse Map), доступная из Verilog через DPI Open Arrays.
-4.  **Level 4: Hardware (`src/rtl/ntt/*.v`)**:
-    *   `ntt_engine.v`: Top-level ядро. Поддерживает режимы NTT (Mode 0) и INTT (Mode 1).
-    *   `ntt_control.v`: Address Generation Unit (AGU) для алгоритма Cooley-Tukey.
-    *   `butterfly.v`: Вычислительное ядро (Modular Add/Sub/Mult).
-    *   `twiddle_rom.v`: Память поворотных множителей (8192 слова: 4K прямых + 4K обратных).
+## 🚀 Текущий Статус
+**Фаза 6 Завершена (Diamond Loop Dual Verified).**
+Система успешно эволюционировала в **двухъядерный RNS-сопроцессор**.
+*   **Интеграция:** Реальные вычислительные ядра (`ntt_engine.v`) заменили заглушки.
+*   **Параллелизм:** Два ядра работают одновременно без блокировок (Round-Robin Arbiter).
+*   **Функциональность:** Реализован полный цикл BFV (Load -> NTT -> Mult -> INTT -> Store) с поддержкой смены модуля (RNS).
 
-## Параметры (N=4096)
-*   **N:** 4096
-*   **Modulus (Q):** 1073750017 (30-bit prime)
-*   **Root (Psi):** 996876704
-*   **Algorithm:** Radix-2 Decimation-in-Time (DIT).
-    *   Input: Bit-Reversed Order.
-    *   Output: Natural Order.
+---
 
-## Запуск Тестов
-\`\`\`bash
+## 🏛 Архитектура v6.0
+
+### 1. Top Level (`logos_core.v`)
+*   **Dual Core:** Инстанцирует два модуля `ntt_core` (ID=0, ID=1).
+*   **Command Processor:** Диспетчер команд. Маршрутизирует задачи на основе бита [48] адреса команды (Target Core Bit).
+*   **Memory Arbiter:** 3-портовый арбитр (DMA Host, Core 0, Core 1).
+    *   *Режим:* Blocking Round-Robin (честное чередование).
+    *   *Особенность:* Блокирует новые запросы на чтение до получения ответа (Valid), предотвращая смешивание транзакций.
+
+### 2. Вычислительное Ядро (`ntt_engine.v`)
+"Сердце" системы. Универсальный процессор обработки полиномов.
+*   **FSM States:** IDLE, DMA_READ, DMA_WRITE, CALC, CONFIG, ALU.
+*   **Local Memory:** 4 банка данных (SRAM) + Память Twiddle Factors.
+*   **Execution Units:**
+    *   **NTT/INTT:** Алгоритм Cooley-Tukey (Radix-2).
+    *   **Vector ALU:** Поэлементное сложение и умножение векторов (`vec_alu.v`).
+*   **DMA Controller:**
+    *   *Read:* Pipelined с Address Lookahead.
+    *   *Write:* Burst Mode "Fire-and-Forget" (для максимальной скорости).
+
+### 3. RNS & Config
+Ядро поддерживает динамическую смену криптографических параметров "на лету".
+*   **Config Registers:** `q` (Modulus), `mu` (Barrett precalc), `n_inv`.
+*   **Механизм:** Команда `OPC_CONFIG` загружает структуру из памяти в регистры ядра.
+
+---
+
+## 💾 Карты Памяти и Команды
+
+### Instruction Set Architecture (ISA v6)
+Формат команды (64-бит): `[Opcode 8] [Slot 4] [Target 1] [Addr 48]`
+
+| Opcode | Mnemonic   | Описание |
+| :--- | :--- | :--- |
+| `0x02` | `LOAD`     | Загрузка вектора (N слов) из RAM в SRAM Slot. |
+| `0x03` | `STORE`    | Выгрузка вектора из SRAM Slot в RAM. |
+| `0x04` | `LOAD_W`   | Загрузка Twiddle Factors (2*N слов). |
+| `0x05` | `CONFIG`   | Загрузка RNS конфигурации (3 слова: q, mu, n_inv). |
+| `0x10` | `NTT`      | Выполнить прямое преобразование. |
+| `0x11` | `INTT`     | Выполнить обратное преобразование. |
+| `0x20` | `ADD`      | Сложение: `Slot[i] = Slot[i] + Source[i]`. |
+| `0x22` | `MULT`     | Умножение: `Slot[i] = Slot[i] * Source[i]`. |
+
+### Global Memory Map (Convention)
+*   `0x00000 - 0x0FFFF`: System / Config Region.
+*   `0x10000`: Vector A.
+*   `0x20000`: Vector B.
+*   `0x30000`: Exchange Buffer.
+*   `0x40000`: Output Buffer.
+*   `0x80000`: Twiddle Factors Table.
+
+---
+
+## 🛠 Software Stack
+
+### 1. Python SDK (`logos_sdk.py`)
+Высокоуровневая обертка для управления эмулятором.
+```python
+driver = logos_sdk.LogosDriver(logos_emu)
+driver.load_data(core_id=0, slot=0, addr=0x10000)
+driver.run_ntt(core_id=0)
+```
+
+### 2. C++ Driver (`emulator_core.cpp`)
+*   Связывает Python (PyBind11) и Verilator.
+*   Реализует функцию `push_command(cmd, timeout)` с поддержкой Hold Time для корректной синхронизации с RTL.
+*   Экспортирует методы прямого доступа к памяти (`read_ram`, `write_ram`).
+
+### 3. Memory Model (`dpi_impl.cpp`)
+*   `std::map<long long, long long>` реализует разреженную память (Sparse Memory).
+*   **Hybrid Bridge:** Экспортирует символы как `dpi_` (для Verilog), так и `py_` (для Legacy) для решения проблем линковки.
+
+---
+
+## 🔬 How to Run
+
+### Сборка и Тесты
+Все операции выполняются внутри Docker для обеспечения воспроизводимости.
+
+```bash
 cd VM
-docker build -t logos-emu .
-\`\`\`
-Dockerfile автоматически запускает финальный тест `tests/test_day10_platinum.py`.
+# 1. Сборка Образа (включая компиляцию Verilator и C++)
+docker build -t logos-dev:v6 .
 
-## Debugging & Tracing (Phase 4)
-### Smart Triggers
-Use the `TraceGuard` context manager in Python tests:
-\`\`\`python
-from logos_sdk import TraceGuard
-with TraceGuard(emu, "my_test"):
-    # ... logic ...
-\`\`\`
-- **Success:** Trace is auto-deleted.
-- **Failure:** Trace is saved as \`ERROR_my_test.vcd\`.
+# 2. Запуск финального теста (Diamond Loop)
+docker run --rm logos-dev:v6 python3 tests/day10/test_diamond_final.py
+```
 
-### Viewing Waveforms
-1. List available traces: \`./bin/manage_traces\`
-2. Download via SCP.
-3. Open with GTKWave.
+### Отладка
+В RTL включен `TraceGuard` и отладочный вывод `$display` (фильтруется по `CORE_ID`).
+Для просмотра логов просто запустите docker run.
 
-## Debugging & Tracing (Phase 4)
-### Smart Triggers (TraceGuard)
-Use context manager to auto-capture crashes:
-\`\`\`python
-from logos_sdk import TraceGuard
-with TraceGuard(emu, "test_name"):
-    # code that might crash
-\`\`\`
-- **Success:** Trace is deleted.
-- **Crash:** Saved as \`ERROR_test_name.vcd\`.
-
-### Managing Traces
-Run \`./bin/manage_traces\` to list artifacts.

@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module ntt_arith_unit (
     input  wire        clk,
     input  wire        rst,

@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module twiddle_rom (
     input  wire [12:0] addr, // 13 bit addr (Bit 12 selects Fwd/Inv)
     output reg  [63:0] data

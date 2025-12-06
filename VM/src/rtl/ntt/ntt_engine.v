@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module ntt_engine #(
     parameter N_LOG = 12,
     parameter N     = 4096,
@@ -186,7 +187,7 @@ module ntt_engine #(
                         if (arb_gnt) begin 
                             dma_req_idx <= dma_req_idx + 1; 
                             // USE REGISTERED ADDRESS
-                            arb_addr <= reg_dma_addr + ((dma_req_idx + 1) * 8); 
+                            arb_addr <= reg_dma_addr + (48'(dma_req_idx) + 48'd1) * 48'd8;
                             arb_req <= 0; 
                         end
                     end else arb_req <= 0;
@@ -199,7 +200,7 @@ module ntt_engine #(
                         if (arb_gnt) begin 
                             dma_req_idx <= dma_req_idx + 1; 
                             // USE REGISTERED ADDRESS
-                            arb_addr <= reg_dma_addr + ((dma_req_idx + 1) * 8);
+                            arb_addr <= reg_dma_addr + (48'(dma_req_idx) + 48'd1) * 48'd8;
                         end
                     end else begin arb_req <= 0; state <= S_IDLE; end
                 end
@@ -210,7 +211,7 @@ module ntt_engine #(
                         if (arb_gnt) begin 
                             dma_req_idx <= dma_req_idx + 1; 
                             // USE REGISTERED ADDRESS
-                            arb_addr <= reg_dma_addr + ((dma_req_idx + 1) * 8); 
+                            arb_addr <= reg_dma_addr + (48'(dma_req_idx) + 48'd1) * 48'd8;
                             arb_req <= 0; 
                         end
                     end else arb_req <= 0;

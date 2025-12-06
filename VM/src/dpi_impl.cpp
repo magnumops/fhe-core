@@ -1,29 +1,64 @@
-
-#include <map>
 #include <iostream>
-#include <stdint.h>
+#include <map>
 #include "svdpi.h"
 
-static std::map<long long, long long> ram_storage;
+class VirtualRAM {
+public:
+    std::map<long long, long long> memory;
+    long long read(long long addr) { return memory[addr]; }
+    void write(long long addr, long long val) { memory[addr] = val; }
+};
 
-// --- ACTUAL IMPLEMENTATION ---
-extern "C" void dpi_write_ram(long long addr, long long val) {
-    ram_storage[addr] = val;
-}
+VirtualRAM* g_ram = nullptr;
 
-extern "C" long long dpi_read_ram(long long addr) {
-    if (ram_storage.find(addr) != ram_storage.end()) {
-        return ram_storage[addr];
+extern "C" {
+    // --- Lifecycle ---
+    void init_ram() { if (!g_ram) g_ram = new VirtualRAM(); }
+    void cleanup_ram() { if (g_ram) { delete g_ram; g_ram = nullptr; } }
+
+    // --- Python Helpers ---
+    void py_write_ram(long long addr, long long val) {
+        if (!g_ram) init_ram();
+        g_ram->write(addr, val);
     }
-    return 0;
-}
+    
+    long long py_read_ram(long long addr) {
+        if (!g_ram) return 0;
+        return g_ram->read(addr);
+    }
 
-// --- ALIASES (FORWARDERS) FOR COMPATIBILITY ---
-// Если кто-то ищет py_write_ram, перенаправляем на dpi_write_ram
-extern "C" void py_write_ram(long long addr, long long val) {
-    dpi_write_ram(addr, val);
-}
+    // --- DPI Functions (Verilog Hooks) ---
+    long long dpi_read_ram(long long addr) {
+        if (!g_ram) return 0;
+        return g_ram->read(addr);
+    }
+    
+    // MISSING FUNCTION RESTORED:
+    void dpi_write_ram(long long addr, long long val) {
+        if (!g_ram) return;
+        g_ram->write(addr, val);
+    }
 
-extern "C" long long py_read_ram(long long addr) {
-    return dpi_read_ram(addr);
+    void dpi_read_burst(long long addr, int len, const svOpenArrayHandle data) {
+        if (!g_ram) return;
+        for (int i = 0; i < len; i++) {
+            long long val = g_ram->read(addr + i);
+            svBitVecVal* v_ptr = (svBitVecVal*)svGetArrElemPtr1(data, i);
+            if (v_ptr) {
+                v_ptr[0] = (uint32_t)(val & 0xFFFFFFFF);
+                v_ptr[1] = (uint32_t)(val >> 32);
+            }
+        }
+    }
+
+    void dpi_write_burst(long long addr, int len, const svOpenArrayHandle data) {
+        if (!g_ram) return;
+        for (int i = 0; i < len; i++) {
+            svBitVecVal* v_ptr = (svBitVecVal*)svGetArrElemPtr1(data, i);
+            if (v_ptr) {
+                long long val = (long long)v_ptr[0] | ((long long)v_ptr[1] << 32);
+                g_ram->write(addr + i, val);
+            }
+        }
+    }
 }

@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module command_processor (
     input  wire        clk,
     input  wire        rst,

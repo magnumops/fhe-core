@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module arbiter_test_shim #(parameter N=4096)(
     input wire clk,
     input wire rst,

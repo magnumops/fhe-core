@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module ntt_control #(
     parameter N_LOG = 12,  // Log2(8)
     parameter N     = 4096

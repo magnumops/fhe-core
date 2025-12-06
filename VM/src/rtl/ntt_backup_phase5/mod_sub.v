@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module mod_sub (
     input  wire [63:0] a,
     input  wire [63:0] b,

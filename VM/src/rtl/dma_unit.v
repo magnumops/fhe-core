@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module dma_unit(
     input clk, input rst,
     input start,

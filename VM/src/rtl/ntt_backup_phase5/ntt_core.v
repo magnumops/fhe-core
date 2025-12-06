@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 module ntt_core #(parameter CORE_ID = 0)(
     input clk, input rst, input start, output reg ready,
     // Memory Port
