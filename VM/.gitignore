@@ -1,1 +1,49 @@
+# --- Build System & CMake ---
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+install_manifest.txt
+
+# --- Binary Artifacts ---
+*.o
+*.so
+*.a
+*.dylib
+*.dll
+*.pyd
+
+# --- Executables ---
+# Имя нашего генератора данных
+seal_exporter
+# Любые файлы без расширения (часто бинарники в Linux), но исключаем папки
+!*.*
+!*/
+
+# --- Verilator Generated ---
+verilator_out/
 *.vcd
+*.fst
+*.wlf
+*.log
+
+# --- Python ---
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+env/
+*.egg-info/
+
+# --- Simulation Data (Golden Vectors) ---
+# Мы их генерируем скриптом, в репозитории им делать нечего
+golden_*.bin
+*.dat
+
+# --- IDE & OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
